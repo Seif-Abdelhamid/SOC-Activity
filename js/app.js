@@ -179,7 +179,31 @@ function viewAuth() {
       h("div", { class: "field" }, h("label", { for: "password" }, "Password", h("button", { type: "button", class: "btn quiet sm", style: "margin-left:auto;height:auto;padding:0", text: "Forgot password?", onclick: () => go("forgot") })), p),
       isDemo ? h("p", { class: "help", text: "Demo: sign in as seif.abdelhamid@shu.edu (supervisor) or maya.patel@shu.edu (student). Any password works." }) : null,
       err, h("button", { class: "btn primary wide", type: "submit", text: "Sign in" }));
-    foot = h("p", { class: "auth-switch" }, "New to the SOC team? ", h("button", { type: "button", text: "Create an account", onclick: () => go("signup") }));
+    foot = [altSignIn(err, go, "Sign in"), h("p", { class: "auth-switch" }, "New to the SOC team? ", h("button", { type: "button", text: "Create an account", onclick: () => go("signup") }))];
+  } else if (mode === "code") {
+    const sent = S.codeEmail;
+    title = sent ? "Check your email" : "Sign in with an email link";
+    sub = sent ? `We sent a sign-in link to ${sent}. Open it on this device and you'll be signed in. You can close this tab.` : "No password needed. We'll email you a one-time sign-in link.";
+    if (!sent) {
+      form = h("form", { onsubmit: async e => { e.preventDefault(); err.textContent = "";
+        const em = email.value.trim().toLowerCase();
+        await busy(form.querySelector("[type=submit]"), "Sending…", async () => {
+          try { await S.api.sendEmailCode(em); S.codeEmail = em; viewAuth(); } catch (x) { err.textContent = x.message; } }); } },
+        h("div", { class: "field" }, h("label", { for: "email", text: "Email" }), email), err,
+        h("button", { class: "btn primary wide", type: "submit", text: "Email me a link" }));
+    } else {
+      const code = h("input", { type: "text", id: "otp", inputmode: "numeric", autocomplete: "one-time-code", pattern: "[0-9]{6,10}", maxlength: "10", required: true, placeholder: "123456", class: "mono otp" });
+      // Only shown if the email template includes {{ .Token }} (needs custom SMTP on Supabase).
+      const codeBox = h("details", { class: "help" }, h("summary", { text: "The email has a code instead?" }),
+        h("div", { class: "stack", style: "margin-top:10px" }, h("div", { class: "field" }, h("label", { for: "otp", text: "Code from the email" }), code),
+          h("button", { class: "btn primary wide", type: "submit", text: "Sign in with code" })));
+      form = h("form", { onsubmit: async e => { e.preventDefault(); err.textContent = "";
+        await busy(form.querySelector("[type=submit]"), "Checking…", async () => {
+          try { await S.api.verifyEmailCode(sent, code.value.replace(/\s/g, "")); S.codeEmail = null; await route(); } catch (x) { err.textContent = x.message; } }); } },
+        codeBox, err,
+        h("button", { class: "btn sm", type: "button", text: "Use a different email or send a new link", onclick: () => { S.codeEmail = null; viewAuth(); } }));
+    }
+    foot = h("p", { class: "auth-switch" }, h("button", { type: "button", text: "Back to sign in", onclick: () => { S.codeEmail = null; go("signin"); } }));
   } else if (mode === "signup") {
     title = "Create your account"; sub = "Your supervisor approves new accounts before you can log checks.";
     const name = h("input", { type: "text", id: "fullname", autocomplete: "name", required: true, placeholder: "First and last name" });
@@ -202,7 +226,7 @@ function viewAuth() {
         h("div", { class: "field" }, h("label", { for: "password2", text: "Confirm password" }), p2)),
       h("p", { class: "help", text: "At least 8 characters. Don't reuse your SHU password." }),
       err, h("button", { class: "btn primary wide", type: "submit", text: "Create account" }));
-    foot = h("p", { class: "auth-switch" }, "Already have an account? ", h("button", { type: "button", text: "Sign in", onclick: () => go("signin") }));
+    foot = [altSignIn(err, go, "Sign up", true), h("p", { class: "auth-switch" }, "Already have an account? ", h("button", { type: "button", text: "Sign in", onclick: () => go("signin") }))];
   } else if (mode === "forgot") {
     title = "Reset your password"; sub = "We'll email you a link to choose a new one.";
     form = h("form", { onsubmit: async e => { e.preventDefault(); err.textContent = "";
@@ -226,9 +250,74 @@ function viewAuth() {
   }
   mount(h("div", { class: "auth" },
     h("main", { class: "auth-form" }, h("div", {}, h("div", { class: "mark" }, h("b", { text: "SOC" }), "SOC Log"),
-      h("div", {}, h("h1", { text: title }), h("p", { class: "dim", style: "margin-top:6px", text: sub })), note, form, foot)),
+      h("div", {}, h("h1", { text: title }), h("p", { class: "dim", style: "margin-top:6px", text: sub })), note, form, ...[].concat(foot || []))),
     authSide()));
   (mode === "signup" ? document.getElementById("fullname") : document.getElementById("email") || document.getElementById("password"))?.focus();
+}
+
+// Microsoft / Google / passkey / email-code buttons under the main form.
+function altSignIn(err, go, verb, signup = false) {
+  const P = S.api.providers || {};
+  const oauth = (provider, label, icon) => h("button", { class: "btn wide provider", type: "button", onclick: async e => { err.textContent = "";
+      await busy(e.currentTarget, "Redirecting…", async () => { try { await S.api.oauth(provider); } catch (x) { err.textContent = x.message; } }); } },
+    icon, `${verb} with ${label}`);
+  const btns = [
+    P.azure ? oauth("azure", "SHU Microsoft", logoMs()) : null,
+    P.google ? oauth("google", "Google", logoGoogle()) : null,
+    !signup && P.passkey ? h("button", { class: "btn wide provider", type: "button", onclick: async e => { err.textContent = "";
+        await busy(e.currentTarget, "Waiting for passkey…", async () => { try { await S.api.passkeySignIn(); await route(); } catch (x) { err.textContent = x.message; } }); } },
+      icoKey(), "Sign in with a passkey") : null,
+    !signup ? h("button", { class: "btn wide provider", type: "button", onclick: () => { S.codeEmail = null; go("code"); } }, icoMail(), "Email me a sign-in link") : null,
+  ].filter(Boolean);
+  if (!btns.length) return null;
+  return h("div", { class: "alt-auth" }, h("div", { class: "or" }, h("span", { text: "or" })), ...btns,
+    P.azure && !signup ? h("p", { class: "help", style: "text-align:center", text: "SHU Microsoft sign-in uses your normal SHU login and Duo approval." }) : null);
+}
+const svgIcon = (paths, vb = "0 0 24 24") => { const e = svg("svg", { viewBox: vb, width: 16, height: 16, "aria-hidden": "true" }); paths.forEach(p => e.appendChild(svg(p[0], p[1]))); return e; };
+const logoMs = () => svgIcon([["rect", { x: 1, y: 1, width: 10, height: 10, fill: "#f25022" }], ["rect", { x: 13, y: 1, width: 10, height: 10, fill: "#7fba00" }], ["rect", { x: 1, y: 13, width: 10, height: 10, fill: "#00a4ef" }], ["rect", { x: 13, y: 13, width: 10, height: 10, fill: "#ffb900" }]]);
+const logoGoogle = () => svgIcon([
+  ["path", { fill: "#4285F4", d: "M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.5 5.5 0 0 1-2.4 3.6v3h3.9c2.2-2.1 3.5-5.1 3.5-8.7z" }],
+  ["path", { fill: "#34A853", d: "M12 24c3.2 0 6-1.1 7.9-2.9l-3.9-3c-1.1.7-2.4 1.2-4 1.2-3.1 0-5.7-2.1-6.6-4.9H1.4v3.1A12 12 0 0 0 12 24z" }],
+  ["path", { fill: "#FBBC05", d: "M5.4 14.4a7.2 7.2 0 0 1 0-4.7V6.6H1.4a12 12 0 0 0 0 10.9l4-3.1z" }],
+  ["path", { fill: "#EA4335", d: "M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.4 6.6l4 3.1C6.3 6.9 8.9 4.8 12 4.8z" }]]);
+const icoKey = () => svgIcon([["circle", { cx: 8, cy: 15, r: 4, fill: "none", stroke: "currentColor", "stroke-width": 2 }], ["path", { d: "M11 12l9-9M17 6l3 3M15 8l2 2", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round" }]]);
+const icoMail = () => svgIcon([["rect", { x: 2, y: 5, width: 20, height: 14, rx: 2, fill: "none", stroke: "currentColor", "stroke-width": 2 }], ["path", { d: "M3 7l9 6 9-6", fill: "none", stroke: "currentColor", "stroke-width": 2 }]]);
+
+/* ---------- 2-step verification (Duo Mobile codes) ---------- */
+function codeForm(onCode, label = "Verify") {
+  const err = h("p", { class: "err", role: "alert" });
+  const code = h("input", { type: "text", id: "totp", inputmode: "numeric", autocomplete: "one-time-code", pattern: "[0-9]{6}", maxlength: "6", required: true, placeholder: "123456", class: "mono otp" });
+  const form = h("form", { class: "stack", onsubmit: async e => { e.preventDefault(); err.textContent = "";
+    await busy(form.querySelector("[type=submit]"), "Checking…", async () => { try { await onCode(code.value.replace(/\s/g, "")); } catch (x) { err.textContent = x.message; code.select(); } }); } },
+    h("div", { class: "field" }, h("label", { for: "totp", text: "6-digit code from Duo Mobile" }), code), err,
+    h("button", { class: "btn primary wide", type: "submit", text: label }));
+  return form;
+}
+async function viewMfaChallenge() {
+  const f = (await S.api.factors()).find(x => x.status === "verified");
+  if (!f) return viewMfaEnroll();
+  viewSolo("Enter your Duo Mobile code", [
+    "Open Duo Mobile, tap the SHU SOC Log account, and type the 6-digit code it shows.",
+    codeForm(async c => { await S.api.verifyTotp(f.id, c); await route(); }),
+    h("p", { class: "help", text: "Lost your phone or deleted the account in Duo Mobile? Ask a supervisor to reset your 2-step verification under People." }),
+  ]);
+  document.getElementById("totp")?.focus();
+}
+async function viewMfaEnroll() {
+  let d;
+  try { d = await S.api.startTotp(); } catch (x) { return viewSolo("Couldn't start 2-step setup", [x.message], [h("button", { class: "btn primary", type: "button", text: "Try again", onclick: () => route() })]); }
+  const secret = h("span", { class: "mono secret", text: d.secret.replace(/(.{4})/g, "$1 ").trim() });
+  viewSolo("Set up 2-step verification", [
+    "The SOC log requires a second step every time you sign in. Use the Duo Mobile app you already have for SHU.",
+    h("ol", { class: "steps" },
+      h("li", {}, "In Duo Mobile tap ", h("b", { text: "+ Add" }), " (or ", h("b", { text: "Add account" }), "), then ", h("b", { text: "Use QR code" }), "."),
+      h("li", {}, "Scan this code. On the same phone? Choose ", h("b", { text: "Other account / enter key manually" }), " and type the key under it."),
+      h("li", {}, "Type the 6-digit code Duo Mobile shows for ", h("b", { text: "SHU SOC Log" }), ".")),
+    h("div", { class: "qr" }, h("img", { src: d.qr, alt: "QR code for Duo Mobile", width: 180, height: 180 }), h("div", { class: "help" }, "Setup key: ", secret)),
+    codeForm(async c => { await S.api.verifyTotp(d.factorId, c); toast("2-step verification is on"); await route(); }, "Turn on 2-step verification"),
+    h("p", { class: "help", text: "Google Authenticator, Microsoft Authenticator and 1Password work too." }),
+  ]);
+  document.getElementById("totp")?.focus();
 }
 
 function viewSolo(title, body, extra = []) {
@@ -303,6 +392,8 @@ async function route() {
     if (S.recovering) return viewAuth();
     const session = await S.api.session();
     if (!session) { S.me = null; return viewAuth(); }
+    const lvl = await S.api.aal();
+    if (lvl.currentLevel !== "aal2") return lvl.nextLevel === "aal2" ? viewMfaChallenge() : viewMfaEnroll();
     S.me = await S.api.me();
     if (!S.me) return viewSolo("We couldn't load your profile", ["Your login worked but your SOC profile is missing. Ask your supervisor to check the database setup (schema.sql)."]);
     if (S.me.status === "pending") return viewPending();
@@ -716,6 +807,9 @@ PAGES.people = async () => {
     if (conf && !(await confirmBox(conf))) return;
     try { await S.api.setAccess(p.id, patch); toast(msg); await loadTeam(true); route(); } catch (x) { toast(x.message); }
   };
+  const reset2fa = p => h("button", { class: "btn sm", type: "button", text: "Reset 2-step", onclick: async () => {
+    if (!(await confirmBox({ title: `Reset 2-step verification for ${p.full_name}?`, body: "Use this when someone lost their phone. Their old Duo Mobile code stops working, and they'll scan a new QR code next time they sign in. Confirm it's really them first.", ok: "Reset", danger: true }))) return;
+    try { await S.api.resetMemberMfa(p.id); toast(`${p.full_name} will set up 2-step verification again`); } catch (x) { toast(x.message); } } });
   const actions = p => {
     if (p.id === S.me.id) return h("span", { class: "faint small", text: "You" });
     if (p.status === "pending") return [
@@ -725,6 +819,7 @@ PAGES.people = async () => {
       p.role === "analyst"
         ? h("button", { class: "btn sm", type: "button", text: "Make supervisor", onclick: () => act(p, { role: "supervisor" }, `${p.full_name} is now a supervisor`, { title: `Make ${p.full_name} a supervisor?`, body: "Supervisors can see everyone's logs, approve and remove people, and edit the checklist.", ok: "Make supervisor" }) })
         : h("button", { class: "btn sm", type: "button", text: "Make analyst", onclick: () => act(p, { role: "analyst" }, `${p.full_name} is now an analyst`, { title: `Change ${p.full_name} to analyst?`, body: "They'll only see their own logs.", ok: "Change role" }) }),
+      reset2fa(p),
       h("button", { class: "btn sm danger", type: "button", text: "Remove", onclick: () => act(p, { status: "removed" }, `Removed ${p.full_name}`, { title: `Remove ${p.full_name}?`, body: "They'll lose access right away and won't be able to log checks. Their past entries stay on record. You can restore them later.", ok: "Remove access", danger: true }) })];
     return h("button", { class: "btn sm", type: "button", text: "Restore", onclick: () => act(p, { status: "active" }, `${p.full_name} has access again`) });
   };
@@ -810,7 +905,7 @@ PAGES.audit = async () => {
   S.audit = await S.api.audit();
   const who = id => id ? nameOf(id) : "System";
   const say = e => { const tgt = e.target_id ? nameOf(e.target_id) : (e.detail && e.detail.email) || ""; const d = e.detail || {};
-    return ({ signed_up: `${tgt} signed up (${d.email || ""})`, bootstrap_supervisor: `${tgt} created the first account and became supervisor`,
+    return ({ signed_up: `${tgt} signed up (${d.email || ""})`, bootstrap_supervisor: `${tgt} created the first account and became supervisor`, mfa_reset: `reset ${tgt}'s 2-step verification`,
       approved: `approved ${tgt}`, declined: `declined ${tgt}`, removed: `removed ${tgt}`, restored: `restored access for ${tgt}`, set_pending: `set ${tgt} back to pending`,
       role_changed: `changed ${tgt}'s role from ${d.from_role} to ${d.to_role}`, log_reviewed: `reviewed log entry #${d.log_id} as "${(OUTCOMES[d.outcome] || {}).label || d.outcome}"`,
       review_updated: `updated the review on log entry #${d.log_id} to "${(OUTCOMES[d.outcome] || {}).label || d.outcome}"`,
@@ -847,13 +942,33 @@ PAGES.account = async () => {
   const savePw = h("button", { class: "btn", type: "button", text: "Change password", onclick: () => busy(savePw, "Saving…", async () => {
     if (p1.value.length < 8) return toast("Use at least 8 characters."); if (p1.value !== p2.value) return toast("The passwords don't match.");
     try { await S.api.setPassword(p1.value); p1.value = p2.value = ""; toast("Password changed"); } catch (x) { toast(x.message); } }) });
+  const [factors, keys] = await Promise.all([S.api.factors().catch(() => []), S.api.passkeys().catch(() => null)]);
+  const totp = factors.filter(f => f.status === "verified");
+  const newPhone = h("button", { class: "btn", type: "button", text: "Move to a new phone", onclick: async () => {
+    if (!(await confirmBox({ title: "Move 2-step verification to a new phone?", body: "Your current Duo Mobile entry stops working right away. You'll scan a new QR code next.", ok: "Continue" }))) return;
+    try { for (const f of totp) await S.api.removeTotp(f.id); await route(); } catch (x) { toast(x.message); } } });
+  const mfaPanel = h("div", { class: "panel pad", style: "display:flex;flex-direction:column;gap:14px" }, h("h2", { text: "2-step verification" }),
+    h("p", { class: "dim" }, h("span", { class: "tag ok", text: "On" }), " ",
+      totp.length ? `Duo Mobile code, set up ${shortDate(totp[0].created_at)}. You'll enter a code each time you sign in.` : "Set up."),
+    h("div", {}, newPhone));
+  const addKey = h("button", { class: "btn", type: "button", text: "Add a passkey", onclick: () => busy(addKey, "Waiting for your device…", async () => {
+    try { await S.api.addPasskey(); toast("Passkey added"); route(); } catch (x) { toast(x.message); } }) });
+  const keyPanel = keys === null ? null : h("div", { class: "panel pad", style: "display:flex;flex-direction:column;gap:14px" }, h("h2", { text: "Passkeys" }),
+    h("p", { class: "dim", text: "Sign in with Face ID, Touch ID, Windows Hello or a security key instead of a password." }),
+    keys.length ? h("ul", { class: "keylist" }, keys.map(k => h("li", {}, h("div", {}, h("div", { text: k.friendly_name || "Passkey" }),
+        h("div", { class: "sub", text: `Added ${shortDate(k.created_at)}${k.last_used_at ? ` · last used ${rel(k.last_used_at).toLowerCase()}` : ""}` })),
+      h("button", { class: "btn sm danger", type: "button", text: "Remove", onclick: async () => {
+        if (!(await confirmBox({ title: "Remove this passkey?", body: "You won't be able to sign in with it anymore.", ok: "Remove", danger: true }))) return;
+        try { await S.api.removePasskey(k.id); toast("Passkey removed"); route(); } catch (x) { toast(x.message); } } }))))
+      : h("p", { class: "faint small", text: "No passkeys yet." }),
+    h("div", {}, addKey));
   return h("div", {}, pageHead("Account", `${S.me.email} · ${isSup() ? "Supervisor" : "Analyst"} · member since ${shortDate(S.me.created_at)}`),
     h("div", { style: "display:flex;flex-direction:column;gap:20px;max-width:560px" },
       h("div", { class: "panel pad", style: "display:flex;flex-direction:column;gap:14px" }, h("h2", { text: "Your name" }),
         h("div", { class: "field" }, h("label", { for: "myName", text: "Full name" }), name), h("div", {}, saveName)),
       h("div", { class: "panel pad", style: "display:flex;flex-direction:column;gap:14px" }, h("h2", { text: "Password" }),
         h("div", { class: "grid-2" }, h("div", { class: "field" }, h("label", { for: "np1", text: "New password" }), p1), h("div", { class: "field" }, h("label", { for: "np2", text: "Confirm" }), p2)),
-        h("div", {}, savePw))));
+        h("div", {}, savePw)), mfaPanel, keyPanel));
 };
 
 /* =====================================================================
@@ -861,7 +976,13 @@ PAGES.account = async () => {
    ===================================================================== */
 (async () => {
   try {
+    const back = new URLSearchParams(location.hash.replace(/^#/, "") + "&" + location.search.replace(/^\?/, ""));
+    const oauthErr = back.get("error_description");
     S.api = await createApi();
+    if (oauthErr) {
+      S.authNote = { cls: "bad", text: /database error saving new user/i.test(oauthErr) ? "Sign-up was refused. Use your university email account." : oauthErr.replace(/\+/g, " ") };
+      history.replaceState(null, "", location.pathname);
+    }
     S.settings = await S.api.settings().catch(() => ({}));
     S.api.onAuth(event => {
       if (event === "PASSWORD_RECOVERY") { S.recovering = true; viewAuth(); }
