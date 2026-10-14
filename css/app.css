@@ -281,3 +281,21 @@ td .sub { font-size: 12px; color: var(--ink-3); }
   .toast { animation: rise .18s ease-out; } @keyframes rise { from { transform: translate(-50%, 8px); opacity: 0; } }
 }
 .loading { padding: 64px 16px; text-align: center; color: var(--ink-3); }
+
+/* ---------- sign-in options + 2-step verification ---------- */
+.alt-auth { display: flex; flex-direction: column; gap: 10px; }
+.alt-auth .or { display: flex; align-items: center; gap: 12px; color: var(--ink-3); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.alt-auth .or::before, .alt-auth .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.btn.provider { justify-content: center; gap: 10px; }
+.btn.provider svg { flex: none; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+input.otp { font-size: 20px; letter-spacing: .3em; text-align: center; height: 48px; }
+.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--ink-2); font-size: 14px; }
+.qr { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.qr img { display: block; width: 180px; height: 180px; }
+.qr .help { color: #555; text-align: center; }
+.qr .secret { color: #111; word-break: break-all; user-select: all; }
+.keylist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.keylist li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.keylist li:first-child { border-top: 0; }
+.keylist .sub { font-size: 12.5px; color: var(--ink-3); }
