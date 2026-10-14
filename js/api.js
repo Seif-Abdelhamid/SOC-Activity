@@ -25,6 +25,13 @@ function friendly(error) {
     [/not on the active checklist/i, "That check was turned off by your supervisor. Pick another."],
     [/cannot change your own access/i, "You can't change your own access. Another supervisor has to do it."],
     [/failed to fetch|network/i, "Can't reach the server. Check your connection and try again."],
+    [/signups not allowed for otp|otp_disabled/i, "No account uses that email yet. Create an account first."],
+    [/token has expired or is invalid|otp_expired/i, "That code is wrong or expired. Request a new one."],
+    [/invalid totp code|mfa_verification_failed|invalid.*code/i, "That code didn't match. Use the current 6-digit code from Duo Mobile."],
+    [/insufficient_aal|aal2 required/i, "Finish 2-step verification first, then try again."],
+    [/provider is not enabled|unsupported provider/i, "That sign-in option isn't turned on yet. Use email instead."],
+    [/notallowederror|operation either timed out or was not allowed|ceremony was cancelled|aborted/i, "Passkey sign-in was cancelled or timed out."],
+    [/passkey.*not found|no passkey|credential not found/i, "That passkey isn't registered here. Sign in another way, then add it under Account."],
   ];
   for (const [re, msg] of map) if (re.test(m)) return msg;
   return m;
@@ -35,9 +42,12 @@ const unwrap = ({ data, error }) => { if (error) throw new Error(friendly(error)
    Supabase backend
    ===================================================================== */
 async function supabaseApi() {
-  const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm");
+  const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm");
   const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, detectSessionInUrl: true } });
   const here = location.origin + location.pathname;
+  // Which sign-in providers are switched on in the Supabase dashboard (public endpoint).
+  const providers = await fetch(`${SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: SUPABASE_ANON_KEY } })
+    .then(r => r.ok ? r.json() : {}).then(j => j.external || {}).catch(() => ({}));
 
   async function pageAll(build) {
     const out = []; const size = 1000;
@@ -60,6 +70,40 @@ async function supabaseApi() {
     async signOut() { await sb.auth.signOut(); },
     async sendReset(email) { unwrap(await sb.auth.resetPasswordForEmail(email, { redirectTo: here })); },
     async setPassword(password) { unwrap(await sb.auth.updateUser({ password })); },
+
+    // ---- other ways to sign in ----
+    providers: { google: Boolean(providers.google), azure: Boolean(providers.azure), passkey: "PublicKeyCredential" in window },
+    async sendEmailCode(email) {
+      unwrap(await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: here } }));
+    },
+    async verifyEmailCode(email, token) { unwrap(await sb.auth.verifyOtp({ email, token, type: "email" })); },
+    async oauth(provider) {
+      const scopes = provider === "azure" ? "openid email profile" : undefined;
+      unwrap(await sb.auth.signInWithOAuth({ provider, options: { redirectTo: here, scopes } }));
+    },
+    async passkeySignIn() { unwrap(await sb.auth.signInWithPasskey()); },
+    async passkeys() { return unwrap(await sb.auth.passkey.list()) || []; },
+    async addPasskey() { return unwrap(await sb.auth.registerPasskey()); },
+    async removePasskey(passkeyId) { unwrap(await sb.auth.passkey.delete({ passkeyId })); },
+
+    // ---- 2-step verification (TOTP codes from Duo Mobile) ----
+    async aal() { return unwrap(await sb.auth.mfa.getAuthenticatorAssuranceLevel()); },
+    async factors() {
+      const d = unwrap(await sb.auth.mfa.listFactors());
+      return (d.all || d.totp || []).filter(f => f.factor_type === "totp");
+    },
+    async startTotp() {
+      // Clear half-finished setups first so a retry doesn't collide.
+      for (const f of await this.factors()) if (f.status !== "verified") await sb.auth.mfa.unenroll({ factorId: f.id });
+      const d = unwrap(await sb.auth.mfa.enroll({ factorType: "totp", issuer: "SHU SOC Log", friendlyName: `Duo Mobile ${new Date().toISOString().slice(0, 16)}` }));
+      return { factorId: d.id, qr: d.totp.qr_code, secret: d.totp.secret };
+    },
+    async verifyTotp(factorId, code) {
+      unwrap(await sb.auth.mfa.challengeAndVerify({ factorId, code }));
+      await sb.auth.refreshSession();
+    },
+    async removeTotp(factorId) { unwrap(await sb.auth.mfa.unenroll({ factorId })); },
+    async resetMemberMfa(id) { unwrap(await sb.rpc("reset_member_mfa", { target: id })); },
 
     async settings() { return unwrap(await sb.from("app_settings").select("*").maybeSingle()) || {}; },
     async saveSettings(patch) { unwrap(await sb.from("app_settings").update(patch).eq("id", true)); },
@@ -194,6 +238,20 @@ function demoApi() {
     async signOut() { me = null; listeners.forEach(f => f("SIGNED_OUT")); },
     async sendReset() { return wait(); },
     async setPassword() { return wait(); },
+    providers: { google: true, azure: true, passkey: true },
+    async sendEmailCode() { return wait(); },
+    async verifyEmailCode(email) { return this.signIn(email); },
+    async oauth() { throw new Error("Microsoft and Google sign-in only work on the live site, not in the demo."); },
+    async passkeySignIn() { throw new Error("Passkeys only work on the live site, not in the demo."); },
+    async passkeys() { return []; },
+    async addPasskey() { throw new Error("Passkeys only work on the live site, not in the demo."); },
+    async removePasskey() { return wait(); },
+    async aal() { return { currentLevel: "aal2", nextLevel: "aal2" }; },
+    async factors() { return [{ id: "demo", status: "verified", friendly_name: "Duo Mobile", created_at: new Date().toISOString() }]; },
+    async startTotp() { throw new Error("2-step setup only works on the live site, not in the demo."); },
+    async verifyTotp() { return wait(); },
+    async removeTotp() { return wait(); },
+    async resetMemberMfa() { need(isSup()); return wait(); },
     async settings() { return clone(settings); },
     async saveSettings(patch) { need(isSup()); Object.assign(settings, patch); },
     async me() { return me ? clone(me) : null; },
