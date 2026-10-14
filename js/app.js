@@ -43,22 +43,61 @@ const initials = n => (n || "?").split(/\s+/).filter(Boolean).slice(0, 2).map(w 
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const toLocalInput = ms => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 
+/* macOS-style notification banner */
 let toastT;
-function toast(msg) {
-  document.querySelector(".toast")?.remove(); clearTimeout(toastT);
-  const el = h("div", { class: "toast", role: "status", text: msg }); document.body.append(el);
-  toastT = setTimeout(() => el.remove(), 3500);
+function toast(msg, title = "SOC Log") {
+  document.querySelectorAll(".toast").forEach(e => e.remove()); clearTimeout(toastT);
+  const el = h("div", { class: "toast", role: "status" }, h("span", { class: "ti" }, icon("shield")), h("div", {}, h("b", { text: title }), msg));
+  document.body.append(el);
+  toastT = setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 320); }, 3600);
 }
+/* macOS-style alert */
 function confirmBox({ title, body, ok = "Confirm", danger = false }) {
   return new Promise(resolve => {
-    const close = v => { scrim.remove(); box.remove(); resolve(v); };
+    const close = v => { scrim.remove(); box.remove(); document.removeEventListener("keydown", key); resolve(v); };
+    const key = e => { if (e.key === "Escape") close(false); };
     const scrim = h("div", { class: "scrim dialog-scrim", onclick: () => close(false) });
-    const box = h("div", { class: "dialog", role: "dialog", "aria-modal": "true" },
+    const box = h("div", { class: "dialog", role: "alertdialog", "aria-modal": "true" },
+      h("div", { class: "icon" }, icon(danger ? "alert" : "shield")),
       h("h2", { text: title }), body ? h("p", { class: "dim", text: body }) : null,
-      h("div", { class: "btns" }, h("button", { class: "btn", type: "button", text: "Cancel", onclick: () => close(false) }),
-        h("button", { class: `btn ${danger ? "danger" : "primary"}`, type: "button", text: ok, onclick: () => close(true) })));
-    document.body.append(scrim, box); box.querySelector(".btn:last-child").focus();
+      h("div", { class: "btns" }, h("button", { class: `btn ${danger ? "danger" : "primary"}`, type: "button", text: ok, onclick: () => close(true) }),
+        h("button", { class: "btn", type: "button", text: "Cancel", onclick: () => close(false) })));
+    document.body.append(scrim, box); document.addEventListener("keydown", key); box.querySelector(".btn").focus();
   });
+}
+/* SF Symbols-flavoured line icons */
+const ICONS = {
+  overview: "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z",
+  activity: "M3 12h4l3-8 4 16 3-8h4",
+  coverage: "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6zM8.5 12l2.5 2.5 4.5-5",
+  people: "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM2.5 20c.6-3.5 3.3-5.5 6.5-5.5s5.9 2 6.5 5.5M16 4.5a3.3 3.3 0 0 1 0 6.4M18 14.6c1.9.7 3.2 2.5 3.5 5.4",
+  checklist: "M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2",
+  audit: "M12 7v5l3 2M3.5 12a8.5 8.5 0 1 0 2.5-6M3 4v4h4",
+  settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z",
+  log: "M12 8v8M8 12h8M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
+  history: "M3 13h5l1.5 3h5L16 13h5M5.5 5h13L21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6z",
+  account: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c.8-4 4-6 8-6s7.2 2 8 6",
+  shield: "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z",
+  lock: "M6 11h12v10H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3",
+  alert: "M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z",
+  check: "M5 12.5l4.5 4.5L19 7.5",
+  clock: "M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z",
+  fingerprint: "M12 11v3c0 2.5-.6 4.6-1.7 6.3M8.5 7.5A5 5 0 0 1 17 11v1.5M7 11a5 5 0 0 1 .4-2M15 15.5c-.2 1.6-.6 3-1.2 4.3M4.5 9.5A8 8 0 0 1 19.6 8M20 12v1",
+  signout: "M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 8l-4 4 4 4M6 12h10",
+  chevron: "M15 6l-6 6 6 6",
+};
+function icon(name) {
+  const s = svg("svg", { class: "ico", viewBox: "0 0 24 24", "aria-hidden": "true" });
+  s.append(svg("path", { d: ICONS[name] || ICONS.shield })); return s;
+}
+const hue = id => { let x = 0; for (const c of String(id || "")) x = (x * 31 + c.charCodeAt(0)) % 360; return x; };
+const avatar = (id, name) => h("span", { class: "avatar", style: `--h:${hue(id)}`, text: initials(name) });
+function countUp(el) {
+  const target = Number(el.dataset.n); if (!isFinite(target)) return;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) { el.textContent = target; return; }
+  const start = performance.now(), dur = 700;
+  const step = now => { const p = Math.min(1, (now - start) / dur); el.textContent = Math.round(target * (1 - Math.pow(1 - p, 3))) + (el.dataset.suffix || ""); if (p < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
 }
 function download(name, text) {
   const url = URL.createObjectURL(new Blob(["﻿" + text], { type: "text/csv;charset=utf-8" }));
@@ -122,92 +161,167 @@ const nameOf = id => (S.peopleById[id] && S.peopleById[id].full_name) || (S.me &
 const isOpenEsc = l => l.result === "escalated" && (!S.reviews[l.id] || S.reviews[l.id].outcome === "follow_up");
 
 function mount(...nodes) {
-  clearInterval(S.clock); S.clock = null;
+  clearInterval(S.clock); S.clock = null; if (S.feedTimer) { clearInterval(S.feedTimer); S.feedTimer = null; }
   document.querySelectorAll(".scrim, .drawer, .dialog").forEach(e => e.remove());
   const bar = isDemo ? demoBar() : null;
+  document.documentElement.classList.toggle("has-demo", isDemo);
   app.replaceChildren(...[bar, ...nodes].filter(Boolean));
+  window.scrollTo(0, 0);
 }
 function demoBar() {
-  const kids = [configured ? "Demo mode. Sample data only, nothing you do is saved." : "Not connected to a database yet, so you're looking at sample data. Follow the README to connect Supabase."];
+  const kids = [configured ? "Demo mode. Sample data only, nothing you do is saved." : "Not connected to a database yet, so you're looking at sample data."];
   if (S.me && S.api && S.api.demo) {
     const other = isSup() ? ["maya.patel@shu.edu", "student"] : ["seif.abdelhamid@shu.edu", "supervisor"];
     kids.push(h("button", { type: "button", text: `Switch to the ${other[1]} view`, onclick: async () => { await S.api.signIn(other[0]); history.replaceState(null, "", location.pathname + location.search); route(); } }));
   }
   return h("div", { class: "demo-bar" }, kids);
 }
+function liveClock(fmt) {
+  const el = h("span", { class: "num" }); const tick = () => el.textContent = fmt(new Date()); tick();
+  setTimeout(() => { clearInterval(S.clock); S.clock = setInterval(tick, 1000); }); return el;
+}
 
 /* =====================================================================
-   auth screens
+   landing page (signed out)
    ===================================================================== */
-function authSide() {
-  const clock = h("div", { class: "clock" }), sub = h("div", { class: "clock-sub" });
-  const tick = () => {
-    const d = new Date();
-    clock.textContent = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-    sub.textContent = d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }) + " · " + (d.toLocaleTimeString([], { timeZoneName: "short" }).split(" ").pop());
+function scramble(el, text) {
+  const glyphs = "ABCDEF0123456789#$%&*<>/\\{}[]";
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) { el.textContent = text; return; }
+  let frame = 0; const total = 38;
+  const run = () => {
+    el.textContent = text.split("").map((c, i) => c === " " ? " " : i < (frame / total) * text.length ? c : glyphs[Math.floor(Math.random() * glyphs.length)]).join("");
+    if (++frame <= total) requestAnimationFrame(() => setTimeout(run, 28)); else el.textContent = text;
   };
-  tick(); setTimeout(() => { S.clock = setInterval(tick, 1000); });
-  return h("aside", { class: "auth-side" },
-    h("div", { class: "mark" }, h("b", { text: "SOC" }), S.settings.org_name || "Security Operations"),
-    h("div", {}, clock, sub),
-    h("div", {},
-      h("h2", { text: "Every check your team runs, on the record." }),
-      h("ul", { class: "facts" },
-        h("li", {}, h("span", { text: "01" }), "Your name and the server's clock are stamped on every entry."),
-        h("li", {}, h("span", { text: "02" }), "Saved logs can't be edited or deleted, by anyone."),
-        h("li", {}, h("span", { text: "03" }), "Analysts see their own work. Supervisors see the whole team."))));
+  setTimeout(run, 700);
 }
+function viewLanding() {
+  document.documentElement.classList.add("js");
+  const org = S.settings.org_name || "Seton Hall University SOC";
+  const go = hash => () => { location.hash = hash; };
+  const menubar = h("div", { class: "menubar" },
+    h("span", { class: "app-name" }, "SOC Log"), h("span", { class: "item hide-sm", text: "Seton Hall University" }),
+    h("span", { class: "item hide-sm", text: "Security Operations" }), h("span", { class: "sp" }),
+    h("button", { class: "item", type: "button", text: "Sign in", onclick: go("#/signin") }),
+    h("span", { class: "item clock" }, liveClock(d => d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))));
+
+  /* the hero window: a live-looking SOC Log with entries streaming in (illustrative only) */
+  const SAMPLE = [["Falcon detections triaged", "CrowdStrike", "clear"], ["User-reported phish purged", "Defender", "handled"], ["Risky sign-ins reviewed", "Entra ID", "clear"],
+    ["Push-bombing denial reviewed", "Duo", "handled"], ["Encoded PowerShell on FIN-LT022", "CrowdStrike", "escalated"], ["Threat Log remediation checked", "Abnormal", "clear"],
+    ["Skipped searches checked", "Splunk", "clear"], ["Bypass codes audited", "Duo", "handled"], ["ATO case worked", "Abnormal", "clear"], ["Quarantine requests reviewed", "Defender", "clear"]];
+  const feed = h("div", { class: "feed", "aria-label": "Example entries" });
+  const k = { n: 128, esc: 2, cov: 31 };
+  const kv = { n: h("b", { text: k.n }), esc: h("b", { text: k.esc }), cov: h("b", { text: `${k.cov}/36` }) };
+  let i = 0;
+  const push = () => {
+    const [what, tool, res] = SAMPLE[i++ % SAMPLE.length]; const now = new Date();
+    const row = h("div", { class: "new" }, h("time", { text: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) }),
+      h("span", { class: "w" }, what, h("small", { text: tool })), resultTag(res));
+    feed.prepend(row); while (feed.children.length > 6) feed.lastChild.remove();
+    kv.n.textContent = ++k.n; if (res === "escalated") kv.esc.textContent = ++k.esc;
+  };
+  for (let j = 0; j < 5; j++) push(); [...feed.children].forEach(c => c.classList.remove("new"));
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) setTimeout(() => { S.feedTimer = setInterval(push, 2400); }, 1600);
+  const win = h("div", { class: "mac hero-win" },
+    h("div", { class: "mac-bar" }, h("div", { class: "lights" }, h("i"), h("i"), h("i")), h("span", { class: "t", text: "SOC Log — Overview" })),
+    h("div", { class: "mac-body" },
+      h("div", { class: "mac-side" }, [["overview", "Overview", 1], ["activity", "Activity"], ["coverage", "Coverage"], ["people", "People"], ["log", "Log a check"]].map(([ic, l, on]) => h("span", { class: on ? "on" : null }, icon(ic), l))),
+      h("div", { class: "mac-main" },
+        h("div", { class: "row-k" }, h("div", { class: "k" }, kv.n, h("span", { text: "checks this month" })), h("div", { class: "k" }, kv.esc, h("span", { text: "open escalations" })), h("div", { class: "k" }, kv.cov, h("span", { text: "checklist coverage" }))),
+        feed)));
+
+  const headline = h("span", { class: "scramble", "aria-hidden": "true" }); scramble(headline, "every check, on the record_");
+  const desk = h("section", { class: "desk" }, h("div", { class: "wallpaper" }), menubar,
+    h("div", { class: "desk-body" },
+      h("div", { class: "hero-copy" },
+        h("span", { class: "kicker", text: `${org} · Security Operations Center` }),
+        h("h1", {}, "Hazard Zet Forward.", headline),
+        h("p", { text: "The shift log for Seton Hall's security analysts. Log every check you run, prove it happened, and give your supervisor the whole picture." }),
+        h("div", { class: "hero-cta" }, h("a", { class: "btn lg white", href: "#/signin", text: "Sign in" }), h("a", { class: "btn lg glass", href: "#/signup", text: "Create an account" }))),
+      win),
+    h("nav", { class: "dock", "aria-label": "Sections" },
+      [["log", "What gets logged", "#tools"], ["coverage", "Why it holds up", "#proof"], ["people", "How it works", "#how"], ["clock", "Seton Hall", "#pride"]].map(([ic, tip, href]) =>
+        h("a", { href, "data-tip": tip, "aria-label": tip, onclick: e => { e.preventDefault(); document.querySelector(href).scrollIntoView({ behavior: "smooth" }); } }, icon(ic))),
+      h("span", { class: "div" }), h("a", { href: "#/signin", "data-tip": "Sign in", "aria-label": "Sign in" }, icon("lock"))));
+
+  const tools = [["CrowdStrike", 8, "Detections, process trees, sensor health, IOCs"], ["Microsoft Defender", 9, "Incidents, phishing submissions, risky sign-ins, KQL hunts"],
+    ["Splunk", 3, "Noisy searches, skipped schedules, SOC dashboards"], ["Abnormal", 6, "Threat Log, account takeover, vendor fraud"], ["Duo", 7, "Fraud reports, push bombing, bypass codes, admin log"], ["Cross-tool", 6, "Playbooks, tabletops, threat intel, post-incident reviews"]];
+  const total = S.practices.length || 39;
+  return mount(h("div", { class: "landing" }, desk,
+    h("section", { class: "l-section", id: "tools" },
+      h("h2", { text: `${total} checks across the tools the SOC runs every day.` }),
+      h("p", { class: "lede", text: "Each check on the team's best-practice list comes with how often it should happen, how critical it is, and the exact click path to do it. Analysts pick it, do it, log it." }),
+      h("div", { class: "tools" }, tools.map(([n, c, d]) => h("div", {}, h("span", { class: "n", text: c }), h("b", { text: n }), h("p", { text: d }))))),
+    h("section", { class: "l-section", id: "proof" },
+      h("h2", { text: "A record that holds up when someone asks." }),
+      h("div", { class: "guarantees" },
+        h("div", {}, h("span", { class: "gi" }, icon("clock")), h("h3", { text: "Stamped by the server" }), h("p", { text: "Every entry carries the analyst's account and the database's clock. Nobody can backdate a check from their browser." })),
+        h("div", {}, h("span", { class: "gi" }, icon("lock")), h("h3", { text: "Permanent once saved" }), h("p", { text: "Saved entries can't be edited or deleted, by anyone. Corrections are new entries that point to the old one." })),
+        h("div", {}, h("span", { class: "gi" }, icon("fingerprint")), h("h3", { text: "Least privilege, enforced" }), h("p", { text: "Analysts see only their own work. Supervisors see the team. The database enforces it, not the web page." })))),
+    h("section", { class: "l-section", id: "how" },
+      h("h2", { text: "From sign-up to supervisor review in four steps." }),
+      h("ol", { class: "steps" },
+        h("li", {}, h("h3", { text: "Create an account" }), h("p", { text: "Sign up with your @shu.edu email." })),
+        h("li", {}, h("h3", { text: "Get approved" }), h("p", { text: "Your supervisor approves you from the People page." })),
+        h("li", {}, h("h3", { text: "Log your checks" }), h("p", { text: "Pick the tool and check, say what you found, add the ticket." })),
+        h("li", {}, h("h3", { text: "Escalations get reviewed" }), h("p", { text: "Your supervisor sees escalations right away and marks them reviewed." })))),
+    h("section", { class: "pride", id: "pride" }, h("div", { class: "wallpaper" }),
+      h("div", { class: "inner" },
+        h("p", { class: "motto" }, "Hazard", h("span", { text: "Zet Forward." })),
+        h("dl", {}, h("dt", { text: "University" }), h("dd", { text: "Seton Hall University" }), h("dt", { text: "Founded" }), h("dd", { text: "1856" }),
+          h("dt", { text: "Home" }), h("dd", { text: "South Orange, New Jersey" }), h("dt", { text: "Team" }), h("dd", { text: "IT Security · Security Operations Center" }),
+          h("dt", { text: "Status" }), h("dd", {}, liveClock(() => "Watching. " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })))))),
+    h("footer", { class: "l-foot" }, h("span", { text: `${org}. Internal tool for authorized staff and student analysts.` }), h("a", { href: "#/signin", text: "Sign in" }))));
+}
+
+/* =====================================================================
+   lock screen (sign in / sign up / reset)
+   ===================================================================== */
 function viewAuth() {
   const mode = S.recovering ? "reset" : S.authMode;
   const domain = S.settings.allowed_email_domain;
   const err = h("p", { class: "err", role: "alert" });
-  const go = m => { S.authMode = m; S.authNote = null; viewAuth(); };
-  const note = S.authNote ? h("div", { class: `notice ${S.authNote.cls || ""}`, text: S.authNote.text }) : null;
-  let title, sub, form, foot;
-
-  const email = h("input", { type: "email", id: "email", autocomplete: "email", required: true, placeholder: domain ? `you@${domain}` : "you@school.edu",
+  const go = m => { S.authNote = null; location.hash = `#/${m}`; };
+  const note = S.authNote ? h("div", { class: "notice", text: S.authNote.text }) : null;
+  const email = h("input", { type: "email", id: "email", autocomplete: "email", required: true, placeholder: domain ? `you@${domain}` : "Email",
     value: isDemo && mode === "signin" ? "seif.abdelhamid@shu.edu" : "" });
-  const pw = (id, ac) => h("input", { type: "password", id, autocomplete: ac, required: true, minlength: "8" });
+  const pw = (id, ac, ph) => h("input", { type: "password", id, autocomplete: ac, required: true, minlength: "8", placeholder: ph });
+  const submitBtn = text => h("button", { class: "btn primary wide", type: "submit", text });
+  let title, sub, form, links, alt = null;
 
   if (mode === "signin") {
-    title = "Sign in"; sub = "Use the account you created for the SOC log.";
-    const p = pw("password", "current-password"); if (isDemo) p.value = "demo-password";
+    title = "Sign in to SOC Log"; sub = S.settings.org_name || "Seton Hall University SOC";
+    const p = pw("password", "current-password", "Password"); if (isDemo) p.value = "demo-password";
     form = h("form", { onsubmit: async e => { e.preventDefault(); err.textContent = "";
-      await busy(e.submitter || form.querySelector("[type=submit]"), "Signing in…", async () => {
-        try { await S.api.signIn(email.value.trim(), p.value); await route(); } catch (x) { err.textContent = x.message; } }); } },
-      h("div", { class: "field" }, h("label", { for: "email", text: "Email" }), email),
-      h("div", { class: "field" }, h("label", { for: "password" }, "Password", h("button", { type: "button", class: "btn quiet sm", style: "margin-left:auto;height:auto;padding:0", text: "Forgot password?", onclick: () => go("forgot") })), p),
-      isDemo ? h("p", { class: "help", text: "Demo: sign in as seif.abdelhamid@shu.edu (supervisor) or maya.patel@shu.edu (student). Any password works." }) : null,
-      err, h("button", { class: "btn primary wide", type: "submit", text: "Sign in" }));
-    foot = [altSignIn(err, go, "Sign in"), h("p", { class: "auth-switch" }, "New to the SOC team? ", h("button", { type: "button", text: "Create an account", onclick: () => go("signup") }))];
+      await busy(form.querySelector("[type=submit]"), "Signing in…", async () => {
+        try { await S.api.signIn(email.value.trim(), p.value); history.replaceState(null, "", location.pathname + location.search); await route(); } catch (x) { err.textContent = x.message; } }); } },
+      email, p, isDemo ? h("p", { class: "help", text: "Demo: seif.abdelhamid@shu.edu (supervisor) or maya.patel@shu.edu (student), any password." }) : null, err, submitBtn("Sign in"));
+    alt = altSignIn(err, go, "Sign in");
+    links = [h("button", { type: "button", text: "Forgot password?", onclick: () => go("forgot") }), h("button", { type: "button", text: "Create an account", onclick: () => go("signup") })];
   } else if (mode === "code") {
     const sent = S.codeEmail;
     title = sent ? "Check your email" : "Sign in with an email link";
-    sub = sent ? `We sent a sign-in link to ${sent}. Open it on this device and you'll be signed in. You can close this tab.` : "No password needed. We'll email you a one-time sign-in link.";
+    sub = sent ? `We sent a sign-in link to ${sent}. Open it on this device and you'll be signed in.` : "No password needed. We'll email you a one-time sign-in link.";
     if (!sent) {
       form = h("form", { onsubmit: async e => { e.preventDefault(); err.textContent = "";
         const em = email.value.trim().toLowerCase();
         await busy(form.querySelector("[type=submit]"), "Sending…", async () => {
           try { await S.api.sendEmailCode(em); S.codeEmail = em; viewAuth(); } catch (x) { err.textContent = x.message; } }); } },
-        h("div", { class: "field" }, h("label", { for: "email", text: "Email" }), email), err,
-        h("button", { class: "btn primary wide", type: "submit", text: "Email me a link" }));
+        email, err, submitBtn("Email me a link"));
     } else {
       const code = h("input", { type: "text", id: "otp", inputmode: "numeric", autocomplete: "one-time-code", pattern: "[0-9]{6,10}", maxlength: "10", required: true, placeholder: "123456", class: "mono otp" });
-      // Only shown if the email template includes {{ .Token }} (needs custom SMTP on Supabase).
       const codeBox = h("details", { class: "help" }, h("summary", { text: "The email has a code instead?" }),
-        h("div", { class: "stack", style: "margin-top:10px" }, h("div", { class: "field" }, h("label", { for: "otp", text: "Code from the email" }), code),
-          h("button", { class: "btn primary wide", type: "submit", text: "Sign in with code" })));
+        h("div", { class: "stack", style: "margin-top:10px" }, code, submitBtn("Sign in with code")));
       form = h("form", { onsubmit: async e => { e.preventDefault(); err.textContent = "";
         await busy(form.querySelector("[type=submit]"), "Checking…", async () => {
-          try { await S.api.verifyEmailCode(sent, code.value.replace(/\s/g, "")); S.codeEmail = null; await route(); } catch (x) { err.textContent = x.message; } }); } },
-        codeBox, err,
-        h("button", { class: "btn sm", type: "button", text: "Use a different email or send a new link", onclick: () => { S.codeEmail = null; viewAuth(); } }));
+          try { await S.api.verifyEmailCode(sent, code.value.replace(/\s/g, "")); S.codeEmail = null; history.replaceState(null, "", location.pathname + location.search); await route(); } catch (x) { err.textContent = x.message; } }); } },
+        codeBox, err);
     }
-    foot = h("p", { class: "auth-switch" }, h("button", { type: "button", text: "Back to sign in", onclick: () => { S.codeEmail = null; go("signin"); } }));
+    links = [h("button", { type: "button", text: "Back to sign in", onclick: () => { S.codeEmail = null; go("signin"); } }),
+      sent ? h("button", { type: "button", text: "Use a different email", onclick: () => { S.codeEmail = null; viewAuth(); } }) : null].filter(Boolean);
   } else if (mode === "signup") {
     title = "Create your account"; sub = "Your supervisor approves new accounts before you can log checks.";
     const name = h("input", { type: "text", id: "fullname", autocomplete: "name", required: true, placeholder: "First and last name" });
-    const p1 = pw("password", "new-password"), p2 = pw("password2", "new-password");
+    const p1 = pw("password", "new-password", "Password (8+ characters)"), p2 = pw("password2", "new-password", "Confirm password");
     form = h("form", { onsubmit: async e => { e.preventDefault(); err.textContent = "";
       const em = email.value.trim().toLowerCase();
       if (name.value.trim().split(/\s+/).length < 2) return err.textContent = "Enter your first and last name.";
@@ -217,42 +331,39 @@ function viewAuth() {
       await busy(form.querySelector("[type=submit]"), "Creating account…", async () => {
         try {
           const r = await S.api.signUp(name.value.trim(), em, p1.value);
-          if (r.needsConfirm) { S.authMode = "signin"; S.authNote = { text: `Almost done. We sent a confirmation link to ${em}. Open it, then sign in here.` }; viewAuth(); }
-          else await route();
+          if (r.needsConfirm) { S.authNote = { text: `Almost done. We sent a confirmation link to ${em}. Open it, then sign in here.` }; location.hash = "#/signin"; }
+          else { history.replaceState(null, "", location.pathname + location.search); await route(); }
         } catch (x) { err.textContent = x.message; } }); } },
-      h("div", { class: "field" }, h("label", { for: "fullname", text: "Full name" }), name),
-      h("div", { class: "field" }, h("label", { for: "email" }, "University email"), email, domain ? h("p", { class: "help", text: `Only @${domain} addresses can sign up.` }) : null),
-      h("div", { class: "grid-2" }, h("div", { class: "field" }, h("label", { for: "password", text: "Password" }), p1),
-        h("div", { class: "field" }, h("label", { for: "password2", text: "Confirm password" }), p2)),
-      h("p", { class: "help", text: "At least 8 characters. Don't reuse your SHU password." }),
-      err, h("button", { class: "btn primary wide", type: "submit", text: "Create account" }));
-    foot = [altSignIn(err, go, "Sign up", true), h("p", { class: "auth-switch" }, "Already have an account? ", h("button", { type: "button", text: "Sign in", onclick: () => go("signin") }))];
+      name, email, p1, p2, h("p", { class: "help", text: domain ? `Only @${domain} addresses can sign up. Don't reuse your SHU password.` : "Don't reuse your university password." }), err, submitBtn("Create account"));
+    alt = altSignIn(err, go, "Sign up", true);
+    links = [h("button", { type: "button", text: "I already have an account", onclick: () => go("signin") })];
   } else if (mode === "forgot") {
     title = "Reset your password"; sub = "We'll email you a link to choose a new one.";
     form = h("form", { onsubmit: async e => { e.preventDefault(); err.textContent = "";
       await busy(form.querySelector("[type=submit]"), "Sending…", async () => {
-        try { await S.api.sendReset(email.value.trim()); S.authMode = "signin"; S.authNote = { text: `If ${email.value.trim()} has an account, a reset link is on its way.` }; viewAuth(); }
+        try { await S.api.sendReset(email.value.trim()); S.authNote = { text: `If ${email.value.trim()} has an account, a reset link is on its way.` }; location.hash = "#/signin"; }
         catch (x) { err.textContent = x.message; } }); } },
-      h("div", { class: "field" }, h("label", { for: "email", text: "Email" }), email), err,
-      h("button", { class: "btn primary wide", type: "submit", text: "Send reset link" }));
-    foot = h("p", { class: "auth-switch" }, h("button", { type: "button", text: "Back to sign in", onclick: () => go("signin") }));
+      email, err, submitBtn("Send reset link"));
+    links = [h("button", { type: "button", text: "Back to sign in", onclick: () => go("signin") })];
   } else {
-    title = "Choose a new password"; sub = "You followed a reset link. Set your new password below.";
-    const p1 = pw("password", "new-password"), p2 = pw("password2", "new-password");
+    title = "Choose a new password"; sub = "You followed a reset link. Set your new password.";
+    const p1 = pw("password", "new-password", "New password"), p2 = pw("password2", "new-password", "Confirm new password");
     form = h("form", { onsubmit: async e => { e.preventDefault(); err.textContent = "";
       if (p1.value.length < 8) return err.textContent = "Use a password with at least 8 characters.";
       if (p1.value !== p2.value) return err.textContent = "The passwords don't match.";
       await busy(form.querySelector("[type=submit]"), "Saving…", async () => {
-        try { await S.api.setPassword(p1.value); S.recovering = false; toast("Password updated"); await route(); } catch (x) { err.textContent = x.message; } }); } },
-      h("div", { class: "field" }, h("label", { for: "password", text: "New password" }), p1),
-      h("div", { class: "field" }, h("label", { for: "password2", text: "Confirm new password" }), p2), err,
-      h("button", { class: "btn primary wide", type: "submit", text: "Save password" }));
+        try { await S.api.setPassword(p1.value); S.recovering = false; toast("Password updated"); history.replaceState(null, "", location.pathname + location.search); await route(); } catch (x) { err.textContent = x.message; } }); } },
+      p1, p2, err, submitBtn("Save password"));
+    links = [];
   }
-  mount(h("div", { class: "auth" },
-    h("main", { class: "auth-form" }, h("div", {}, h("div", { class: "mark" }, h("b", { text: "SOC" }), "SOC Log"),
-      h("div", {}, h("h1", { text: title }), h("p", { class: "dim", style: "margin-top:6px", text: sub })), note, form, ...[].concat(foot || []))),
-    authSide()));
-  (mode === "signup" ? document.getElementById("fullname") : document.getElementById("email") || document.getElementById("password"))?.focus();
+  mount(h("div", { class: "lock" }, h("div", { class: "wallpaper" }),
+    h("a", { class: "back", href: "#/" }, icon("chevron"), "SOC Log"),
+    h("div", { class: "lock-time" }, h("div", { class: "d" }, liveClock(d => d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }))),
+      h("div", { class: "t" }, liveClock(d => d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).replace(/\s?[AP]M$/i, "")))),
+    h("div", { class: "lock-card" }, h("div", { class: "who" }, h("span", { class: "badge" }, icon(mode === "signup" ? "account" : "lock")), h("h1", { text: title }), h("p", { class: "sub", text: sub })),
+      note, form, alt, links.length ? h("div", { class: "links" }, links) : null),
+    h("p", { class: "lock-foot", text: "Seton Hall University · Hazard Zet Forward" })));
+  (document.getElementById(mode === "signup" ? "fullname" : mode === "reset" ? "password" : "email"))?.focus();
 }
 
 // Microsoft / Google / passkey / email-code buttons under the main form.
@@ -309,7 +420,7 @@ async function viewMfaEnroll() {
   const secret = h("span", { class: "mono secret", text: d.secret.replace(/(.{4})/g, "$1 ").trim() });
   viewSolo("Set up 2-step verification", [
     "The SOC log requires a second step every time you sign in. Use the Duo Mobile app you already have for SHU.",
-    h("ol", { class: "steps" },
+    h("ol", { class: "mfa-steps" },
       h("li", {}, "In Duo Mobile tap ", h("b", { text: "+ Add" }), " (or ", h("b", { text: "Add account" }), "), then ", h("b", { text: "Use QR code" }), "."),
       h("li", {}, "Scan this code. On the same phone? Choose ", h("b", { text: "Other account / enter key manually" }), " and type the key under it."),
       h("li", {}, "Type the 6-digit code Duo Mobile shows for ", h("b", { text: "SHU SOC Log" }), ".")),
@@ -321,15 +432,15 @@ async function viewMfaEnroll() {
 }
 
 function viewSolo(title, body, extra = []) {
-  mount(h("div", { class: "solo" }, h("div", { class: "card" },
-    h("div", { class: "mark" }, h("b", { text: "SOC" }), S.settings.org_name || "SOC Log"),
+  mount(h("div", { class: "solo" }, h("div", { class: "wallpaper" }), h("div", { class: "card" },
+    h("div", { class: "brandbar", style: "padding:0" }, h("span", { class: "brand-mark" }, icon("shield")), "SOC Log"),
     h("h1", { text: title }), ...body.map(p => typeof p === "string" ? h("p", { class: "dim", text: p }) : p),
     h("div", { style: "display:flex;gap:8px;flex-wrap:wrap" }, ...extra,
-      h("button", { class: "btn", type: "button", text: "Sign out", onclick: async () => { await S.api.signOut(); S.me = null; route(); } })))));
+      h("button", { class: "btn", type: "button", text: "Sign out", onclick: async () => { await S.api.signOut(); S.me = null; location.hash = "#/"; route(); } })))));
 }
 const viewPending = () => viewSolo("Waiting for approval", [
   `Thanks, ${S.me.full_name.split(" ")[0]}. Your account (${S.me.email}) was created ${rel(S.me.created_at).toLowerCase()}.`,
-  "A supervisor needs to approve it before you can log checks. Let them know you've signed up. This page updates when you check again.",
+  "A supervisor needs to approve it before you can log checks. Let them know you've signed up, then check again.",
 ], [h("button", { class: "btn primary", type: "button", text: "Check again", onclick: () => route() })]);
 const viewRemoved = () => viewSolo("Your access has been removed", [
   "You can no longer log checks for this SOC. Your past entries are still kept on record.",
@@ -337,7 +448,7 @@ const viewRemoved = () => viewSolo("Your access has been removed", [
 ]);
 
 /* =====================================================================
-   shell + routing
+   app window + routing
    ===================================================================== */
 const ROUTES_ANALYST = [["log", "Log a check"], ["history", "My checks"], ["account", "Account"]];
 const ROUTES_SUP = [["overview", "Overview"], ["activity", "Activity"], ["coverage", "Coverage"], ["people", "People"],
@@ -346,29 +457,49 @@ const PAGES = {};
 
 function shell(current, content) {
   const routes = isSup() ? ROUTES_SUP : ROUTES_ANALYST;
+  const label = (routes.find(r => r[0] === current) || [, ""])[1];
   const pending = isSup() ? S.people.filter(p => p.status === "pending").length : 0;
   const openEsc = isSup() && S.team ? S.team.filter(isOpenEsc).length : 0;
-  const link = ([id, label]) => h("a", { href: `#/${id}`, "aria-current": id === current ? "page" : null }, label,
-    id === "people" && pending ? h("span", { class: "badge", text: pending }) : null,
-    id === "activity" && openEsc ? h("span", { class: "badge", text: openEsc }) : null);
+  const badge = id => id === "people" && pending ? pending : id === "activity" && openEsc ? openEsc : 0;
+  const existing = app.querySelector(".shell");
+  if (existing && existing.dataset.role === (isSup() ? "sup" : "an")) {
+    document.querySelectorAll(".scrim, .drawer, .dialog").forEach(e => e.remove());
+    existing.querySelectorAll(".nav a").forEach(a => { const id = a.dataset.id; a.setAttribute("aria-current", id === current ? "page" : "false");
+      a.querySelector(".badge")?.remove(); if (badge(id)) a.append(h("span", { class: "badge", text: badge(id) })); });
+    existing.querySelector(".toolbar .tt").textContent = label;
+    const c = existing.querySelector(".content"); c.replaceChildren(content); c.classList.remove("page-enter"); void c.offsetWidth; c.classList.add("page-enter");
+    document.title = `${label} · SOC Log`; content.querySelectorAll("[data-n]").forEach(countUp);
+    return;
+  }
+  const link = ([id, lbl]) => h("a", { href: `#/${id}`, "data-id": id, "aria-current": id === current ? "page" : "false" }, icon(id), lbl, badge(id) ? h("span", { class: "badge", text: badge(id) }) : null);
   const nav = isSup()
-    ? [h("div", { class: "group label", text: "Team" }), ...routes.slice(0, 4).map(link), h("div", { class: "group label", text: "Admin" }), ...routes.slice(4, 7).map(link),
-       h("div", { class: "group label", text: "My work" }), ...routes.slice(7).map(link)]
+    ? [h("div", { class: "group", text: "Team" }), ...routes.slice(0, 4).map(link), h("div", { class: "group", text: "Admin" }), ...routes.slice(4, 7).map(link),
+       h("div", { class: "group", text: "My work" }), ...routes.slice(7).map(link)]
     : routes.map(link);
-  const signOut = async () => { await S.api.signOut(); S.me = null; S.team = null; location.hash = ""; route(); };
-  mount(h("div", { class: "shell" },
+  const signOut = async () => { if (!(await confirmBox({ title: "Sign out of SOC Log?", ok: "Sign out" }))) return; await S.api.signOut(); S.me = null; S.team = null; location.hash = "#/"; route(); };
+  const toolbar = h("div", { class: "toolbar" }, h("span", { class: "tt", text: label }));
+  const main = h("main", { class: "main" }, toolbar, h("div", { class: "content page-enter", id: "main" }, content));
+  mount(h("div", { class: "shell", "data-role": isSup() ? "sup" : "an" },
     h("aside", { class: "side" },
-      h("div", { class: "side-top" }, h("div", {}, h("div", { class: "mark" }, h("b", { text: "SOC" }), "SOC Log"), h("div", { class: "org", text: S.settings.org_name || "" })),
-        h("div", { class: "mobile-user" }, h("span", { class: "avatar", text: initials(S.me.full_name) }), h("button", { class: "btn sm", type: "button", text: "Sign out", onclick: signOut }))),
+      h("div", { class: "side-top" }, h("div", { class: "lights" }, h("i"), h("i"), h("i"))),
+      h("div", { class: "brandbar" }, h("div", { style: "display:flex;gap:9px;align-items:center" }, h("span", { class: "brand-mark" }, icon("shield")),
+        h("div", {}, "SOC Log", h("small", { text: S.settings.org_name || "Seton Hall University" }))),
+        h("div", { class: "mobile-user" }, avatar(S.me.id, S.me.full_name), h("button", { class: "btn sm", type: "button", text: "Sign out", onclick: signOut }))),
       h("nav", { class: "nav", "aria-label": "Main" }, nav),
-      h("div", { class: "side-user" }, h("span", { class: "avatar", text: initials(S.me.full_name) }),
+      h("div", { class: "side-user" }, avatar(S.me.id, S.me.full_name),
         h("div", { class: "who" }, h("div", { class: "nm", text: S.me.full_name }), h("div", { class: "rl", text: isSup() ? "Supervisor" : "Analyst" })),
-        h("button", { class: "btn quiet sm", type: "button", text: "Sign out", onclick: signOut }))),
-    h("main", { class: "main", id: "main" }, content)));
+        h("button", { class: "btn quiet sm", type: "button", title: "Sign out", "aria-label": "Sign out", onclick: signOut }, icon("signout")))),
+    main));
+  document.title = `${label} · SOC Log`;
+  content.querySelectorAll("[data-n]").forEach(countUp);
+  const onScroll = () => toolbar.classList.toggle("scrolled", window.scrollY > 40);
+  window.removeEventListener("scroll", S.onScroll || (() => {})); S.onScroll = onScroll; window.addEventListener("scroll", onScroll, { passive: true });
 }
 function pageHead(title, sub, ...actions) {
-  return h("header", { class: "page-head" }, h("div", {}, h("h1", { text: title }), sub ? h("p", { text: sub }) : null),
-    actions.length ? h("div", { class: "actions" }, actions) : null);
+  return h("header", { class: "page-head" },
+    h("div", { style: "display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap" }, h("h1", { text: title }),
+      actions.length ? h("div", { class: "actions", style: "display:flex;gap:8px;flex-wrap:wrap" }, actions) : null),
+    sub ? h("p", { text: sub }) : null);
 }
 
 async function loadTeam(force = false) {
@@ -385,13 +516,21 @@ async function loadMine() {
   if (!isSup()) { const rv = await S.api.reviews(); S.reviews = Object.fromEntries(rv.map(r => [r.log_id, r])); }
 }
 
-let routing = false;
+let routing = false, rerun = false;
 async function route() {
-  if (routing) return; routing = true;
+  if (routing) { rerun = true; return; } routing = true;
   try {
     if (S.recovering) return viewAuth();
+    const hash = location.hash.replace(/^#\/?/, "");
+    if (/access_token|error_description|type=/.test(hash)) return;   // Supabase is still reading the link
     const session = await S.api.session();
-    if (!session) { S.me = null; return viewAuth(); }
+    if (!session) {
+      S.me = null;
+      if (["signin", "signup", "forgot", "code"].includes(hash)) { S.authMode = hash; return viewAuth(); }
+      if (S.authNote) { S.authMode = "signin"; return viewAuth(); }
+      if (!S.practices.length && S.api.demo) { S.practices = await S.api.practices(); S.P = Object.fromEntries(S.practices.map(p => [p.id, p])); }
+      return viewLanding();
+    }
     const lvl = await S.api.aal();
     if (lvl.currentLevel !== "aal2") return lvl.nextLevel === "aal2" ? viewMfaChallenge() : viewMfaEnroll();
     S.me = await S.api.me();
@@ -401,16 +540,16 @@ async function route() {
     S.api.touch().catch(() => {});
     if (!S.practices.length) { S.practices = await S.api.practices(); S.P = Object.fromEntries(S.practices.map(p => [p.id, p])); }
     const routes = (isSup() ? ROUTES_SUP : ROUTES_ANALYST).map(r => r[0]);
-    let id = location.hash.replace(/^#\/?/, "");
+    let id = hash;
     if (!routes.includes(id)) { id = isSup() ? "overview" : "log"; history.replaceState(null, "", `#/${id}`); }
-    shell(id, h("div", { class: "loading", text: "Loading…" }));
+    if (!app.querySelector(".shell")) shell(id, h("div", { class: "loading" }, h("div", { class: "spinner" })));
     try {
       await Promise.all([loadMine(), loadTeam()]);
       shell(id, await PAGES[id]());
     } catch (x) {
       shell(id, h("div", { class: "notice bad", text: x.message || "Something went wrong loading this page." }));
     }
-  } finally { routing = false; }
+  } finally { routing = false; if (rerun) { rerun = false; route(); } }
 }
 window.addEventListener("hashchange", () => route());
 
@@ -430,7 +569,7 @@ PAGES.log = async () => {
 
   const details = h("textarea", { id: "details", maxlength: "4000", rows: "5", placeholder: "e.g. Worked the Falcon queue from 9:00 to 9:40. 14 new detections: 12 false positives from the Chrome updater (closed), 1 PUP on LAB-WS114 (quarantined), 1 encoded PowerShell on FIN-LT022 (escalated)." });
   const counter = h("span", { class: "help mono", text: "0 / 25" });
-  details.addEventListener("input", () => { const n = details.value.trim().length; counter.textContent = n < 25 ? `${n} / 25` : `${n} characters`; counter.style.color = n && n < 25 ? "var(--bad)" : ""; });
+  details.addEventListener("input", () => { const n = details.value.trim().length; counter.textContent = n < 25 ? `${n} / 25` : `${n} characters`; counter.style.color = n && n < 25 ? "var(--red)" : ""; });
   const affected = h("input", { type: "text", id: "affected", maxlength: "1000", placeholder: "e.g. FIN-LT022, kmorris@shu.edu" });
   const action = h("textarea", { id: "action", maxlength: "2000", rows: "3", placeholder: "e.g. Isolated the host in Falcon, opened INC0041872, called the supervisor at 9:42." });
   const blocker = h("textarea", { id: "blocker", maxlength: "1000", rows: "3", placeholder: "e.g. Lost access to the Duo admin panel mid-review." });
@@ -539,7 +678,7 @@ PAGES.log = async () => {
 function receipt(l) {
   const p = S.P[l.practice_id] || {};
   return h("div", { class: "panel receipt" },
-    h("span", { class: "label", text: "Entry saved" }), h("div", { class: "ref", text: l.ref }),
+    h("span", { class: "check" }, icon("check")), h("span", { class: "label", text: "Entry saved" }), h("div", { class: "ref", text: l.ref }),
     h("dl", {}, h("dt", { text: "Check" }), h("dd", { text: p.name }), h("dt", { text: "Result" }), h("dd", {}, resultTag(l.result)),
       h("dt", { text: "Performed" }), h("dd", { text: full(l.performed_at) }), h("dt", { text: "Saved (server)" }), h("dd", { text: full(l.created_at) }),
       l.ticket ? [h("dt", { text: "Ticket" }), h("dd", { class: "mono", text: l.ticket })] : null),
@@ -640,9 +779,9 @@ function barChart(logs) {
     const path = c.n ? `M${x},${y(0)} V${y(0) - hh + r} Q${x},${y(0) - hh} ${x + r},${y(0) - hh} H${x + bw - r} Q${x + bw},${y(0) - hh} ${x + bw},${y(0) - hh + r} V${y(0)} Z`
       : `M${x},${y(0) - 1} H${x + bw} V${y(0)} H${x} Z`;
     s.append(svg("path", { d: path, class: `bar${c.n ? "" : " zero"}` }));
-    if (c.esc) { const dot = svg("circle", { cx: x + bw / 2, cy: y(0) - hh - 7, r: 3.5, fill: "var(--bad)" }); s.append(dot); }
+    if (c.esc) { const dot = svg("circle", { cx: x + bw / 2, cy: y(0) - hh - 7, r: 3.5, fill: "var(--red)" }); s.append(dot); }
     const wd = c.d.getDay();
-    if (i % 2 === (13 % 2) || counts.length <= 7) { const tx = svg("text", { x: x + bw / 2, y: H - 8, "text-anchor": "middle", class: "axis" }); tx.textContent = c.d.toLocaleDateString([], { month: "numeric", day: "numeric" }); tx.style.fill = "var(--ink-3)"; tx.style.font = "11px var(--mono)"; s.append(tx); }
+    if (i % 2 === (13 % 2) || counts.length <= 7) { const tx = svg("text", { x: x + bw / 2, y: H - 8, "text-anchor": "middle", class: "axis" }); tx.textContent = c.d.toLocaleDateString([], { month: "numeric", day: "numeric" }); tx.style.fill = "var(--label-3)"; tx.style.font = "11px var(--mono)"; s.append(tx); }
     const hit = svg("rect", { x: L + i * cw, y: T, width: cw, height: H - T - B, fill: "transparent" });
     hit.addEventListener("mouseenter", () => { tip.hidden = false; tip.textContent = `${c.d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}: ${plural(c.n, "check")}${c.esc ? `, ${c.esc} escalated` : ""}${wd === 0 || wd === 6 ? " (weekend)" : ""}`;
       const box = s.getBoundingClientRect(); tip.style.left = `${((x + bw / 2) / W) * box.width + 16}px`; tip.style.top = `${(y(0) - hh) / H * box.height + 4}px`; });
@@ -663,7 +802,7 @@ PAGES.overview = async () => {
   const overdue = statuses.filter(x => x.s.rank <= 1);
   const covered = active.filter(p => L.some(l => l.practice_id === p.id && now - t(l.performed_at) < 31 * DAY)).length;
   const pending = S.people.filter(p => p.status === "pending");
-  const stat = (v, label, sub, bad) => h("div", { class: "stat" }, h("span", { class: "label", text: label }), h("span", { class: `v${bad ? " bad" : ""}`, text: v }), h("span", { class: "s", text: sub }));
+  const stat = (v, label, sub, bad) => h("div", { class: "stat" }, h("span", { class: "label", text: label }), h("span", { class: `v${bad ? " bad" : ""}`, text: typeof v === "number" ? "0" : v, "data-n": typeof v === "number" ? v : null }), h("span", { class: "s", text: sub }));
   const delta = wk - prev;
 
   const attention = [
@@ -693,11 +832,11 @@ PAGES.overview = async () => {
       stat(overdue.length, "Overdue", "or never done", overdue.length > 0)),
     h("div", { class: "cols section" },
       h("div", { style: "display:flex;flex-direction:column;gap:24px;min-width:0" },
-        h("section", {}, h("div", { class: "section-head" }, h("h2", { text: "Checks per day" }), h("span", { class: "small faint" }, "Last 14 days · ", h("span", { style: "color:var(--bad)", text: "●" }), " day with an escalation")),
+        h("section", {}, h("div", { class: "section-head" }, h("h2", { text: "Checks per day" }), h("span", { class: "small faint" }, "Last 14 days · ", h("span", { style: "color:var(--red)", text: "●" }), " day with an escalation")),
           h("div", { class: "panel" }, barChart(L))),
         h("section", {}, h("div", { class: "section-head" }, h("h2", { text: "Latest entries" }), h("a", { class: "small", href: "#/activity", text: "All activity" })),
           h("div", { class: "panel list" }, L.length ? L.slice(0, 8).map(l => h("div", { class: "row click", onclick: () => openLog(l) },
-            h("span", { class: "avatar", text: initials(nameOf(l.user_id)) }),
+            avatar(l.user_id, nameOf(l.user_id)),
             h("div", { class: "grow" }, h("div", { text: (S.P[l.practice_id] || {}).name }), h("div", { class: "faint small", text: `${nameOf(l.user_id)} · ${when(l.performed_at)}` })),
             resultTag(l.result))) : h("div", { class: "empty" }, h("b", { text: "No checks logged yet" }), "Entries appear here as soon as your team logs them.")))),
       h("div", { style: "display:flex;flex-direction:column;gap:24px;min-width:0" },
@@ -744,7 +883,7 @@ PAGES.activity = async () => {
         h("td", {}, h("div", { text: p.name }), h("div", { class: "sub", text: p.tool })), h("td", {}, resultTag(l.result)),
         h("td", { class: "clip" }, h("div", { text: l.details })), h("td", { class: "mono nowrap", text: l.ticket || "—" }),
         h("td", {}, rv ? outcomeTag(rv.outcome) : isOpenEsc(l) ? h("span", { class: "tag bad" }, h("i"), "Not reviewed") : null,
-          fl.map(x => h("div", { class: "sub", style: "color:var(--warn)", text: x }))));
+          fl.map(x => h("div", { class: "sub", style: "color:var(--orange)", text: x }))));
     }) : [h("tr", {}, h("td", { colspan: "7" }, h("div", { class: "empty" }, h("b", { text: S.team.length ? "No entries match these filters" : "No checks logged yet" }),
       S.team.length ? "Clear a filter to see more." : "Entries show up here as soon as your team logs them.")))]));
   };
@@ -827,7 +966,7 @@ PAGES.people = async () => {
   const rows = groups[tab];
   const head = { pending: ["Name", "Signed up", "Actions"], active: ["Name", "Role", "Checks (30d)", "Last check", "Last seen", "Member since", "Actions"], removed: ["Name", "Removed", "By", "Checks on record", "Actions"] }[tab];
   const cells = p => { const ls = S.team.filter(l => l.user_id === p.id);
-    const name = h("td", {}, h("div", { style: "display:flex;gap:10px;align-items:center" }, h("span", { class: "avatar", text: initials(p.full_name) }), h("div", {}, h("div", { text: p.full_name }), h("div", { class: "sub", text: p.email }))));
+    const name = h("td", {}, h("div", { style: "display:flex;gap:10px;align-items:center" }, avatar(p.id, p.full_name), h("div", {}, h("div", { text: p.full_name }), h("div", { class: "sub", text: p.email }))));
     const acts = h("td", {}, h("div", { style: "display:flex;gap:6px;flex-wrap:wrap" }, actions(p)));
     if (tab === "pending") return [name, h("td", { class: "nowrap", text: rel(p.created_at) }), acts];
     if (tab === "active") return [name, h("td", {}, h("span", { class: `tag ${p.role === "supervisor" ? "brand" : "line"}`, text: p.role === "supervisor" ? "Supervisor" : "Analyst" })),
