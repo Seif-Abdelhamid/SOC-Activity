@@ -93,6 +93,7 @@ function icon(name) {
   const s = svg("svg", { class: "ico", viewBox: "0 0 24 24", "aria-hidden": "true" });
   s.append(svg("path", { d: ICONS[name] || ICONS.shield })); return s;
 }
+const logo = (size, cls = "") => h("img", { class: `logo ${cls}`, src: size > 200 ? "img/logo-640.webp" : size > 90 ? "img/logo-256.webp" : "img/logo-96.webp", alt: "Seton Hall University Cybersecurity SOC Team", width: size, height: size, decoding: "async" });
 const hue = id => { let x = 0; for (const c of String(id || "")) x = (x * 31 + c.charCodeAt(0)) % 360; return x; };
 const avatar = (id, name) => h("span", { class: "avatar", style: `--h:${hue(id)}`, text: initials(name) });
 function countUp(el) {
@@ -236,7 +237,7 @@ function viewLanding() {
   const desk = h("section", { class: "desk" }, h("div", { class: "wallpaper" }), menubar,
     h("div", { class: "desk-body" },
       h("div", { class: "hero-copy" },
-        h("span", { class: "kicker", text: `${org} · Security Operations Center` }),
+        h("div", { class: "hero-badge" }, logo(84), h("span", { class: "kicker", text: `${org} · Security Operations Center` })),
         h("h1", {}, "Hazard Zet Forward.", headline),
         h("p", { text: "The shift log for Seton Hall's security analysts. Log every check you run, prove it happened, and give your supervisor the whole picture." }),
         h("div", { class: "hero-cta" }, h("a", { class: "btn lg white", href: "#/signin", text: "Sign in" }), h("a", { class: "btn lg glass", href: "#/signup", text: "Create an account" }))),
@@ -270,9 +271,10 @@ function viewLanding() {
     h("section", { class: "pride", id: "pride" }, h("div", { class: "wallpaper" }),
       h("div", { class: "inner" },
         h("p", { class: "motto" }, "Hazard", h("span", { text: "Zet Forward." })),
+        h("div", { class: "pride-side" }, logo(260, "pride-logo"),
         h("dl", {}, h("dt", { text: "University" }), h("dd", { text: "Seton Hall University" }), h("dt", { text: "Founded" }), h("dd", { text: "1856" }),
           h("dt", { text: "Home" }), h("dd", { text: "South Orange, New Jersey" }), h("dt", { text: "Team" }), h("dd", { text: "IT Security · Security Operations Center" }),
-          h("dt", { text: "Status" }), h("dd", {}, liveClock(() => "Watching. " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })))))),
+          h("dt", { text: "Status" }), h("dd", {}, liveClock(() => "Watching. " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))))))),
     h("footer", { class: "l-foot" }, h("span", { text: `${org}. Internal tool for authorized staff and student analysts.` }), h("a", { href: "#/signin", text: "Sign in" }))));
 }
 
@@ -363,7 +365,7 @@ function viewAuth() {
     h("a", { class: "back", href: "#/" }, icon("chevron"), "SOC Log"),
     h("div", { class: "lock-time" }, h("div", { class: "d" }, liveClock(d => d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }))),
       h("div", { class: "t" }, liveClock(d => d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).replace(/\s?[AP]M$/i, "")))),
-    h("div", { class: "lock-card" }, h("div", { class: "who" }, h("span", { class: "badge" }, icon(mode === "signup" ? "account" : "lock")), h("h1", { text: title }), h("p", { class: "sub", text: sub })),
+    h("div", { class: "lock-card" }, h("div", { class: "who" }, logo(112, "lock-logo"), h("h1", { text: title }), h("p", { class: "sub", text: sub })),
       note, form, alt, links.length ? h("div", { class: "links" }, links) : null),
     h("p", { class: "lock-foot", text: "Seton Hall University · Hazard Zet Forward" })));
   (document.getElementById(mode === "signup" ? "fullname" : mode === "reset" ? "password" : "email"))?.focus();
@@ -436,7 +438,7 @@ async function viewMfaEnroll() {
 
 function viewSolo(title, body, extra = []) {
   mount(h("div", { class: "solo" }, h("div", { class: "wallpaper" }), h("div", { class: "card" },
-    h("div", { class: "brandbar", style: "padding:0" }, h("span", { class: "brand-mark" }, icon("shield")), "SOC Log"),
+    h("div", { class: "brandbar", style: "padding:0" }, logo(34, "brand-mark"), "SOC Log"),
     h("h1", { text: title }), ...body.map(p => typeof p === "string" ? h("p", { class: "dim", text: p }) : p),
     h("div", { style: "display:flex;gap:8px;flex-wrap:wrap" }, ...extra,
       h("button", { class: "btn", type: "button", text: "Sign out", onclick: async () => { await S.api.signOut(); S.me = null; location.hash = "#/"; route(); } })))));
@@ -510,7 +512,7 @@ function shell(current, content) {
   const toolbar = h("div", { class: "toolbar" }, h("span", { class: "tt", text: label }));
   mount(h("div", { class: "shell", "data-role": roleKey() },
     h("aside", { class: "side" },
-      h("div", { class: "brandbar" }, h("span", { class: "brand-mark" }, icon("shield")), h("div", {}, "SOC Log", h("small", { text: S.settings.org_name || "Seton Hall University" }))),
+      h("div", { class: "brandbar" }, logo(34, "brand-mark"), h("div", {}, "SOC Log", h("small", { text: S.settings.org_name || "Seton Hall University" }))),
       h("button", { class: "btn primary new-entry", type: "button", onclick: () => openLogSheet() }, icon("plus"), "New log entry"),
       h("nav", { class: "nav", "aria-label": "Main" }, items.map(link)),
       h("div", { class: "side-foot" }, meBtn)),
