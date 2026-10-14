@@ -531,3 +531,75 @@ input.otp { font-size: 22px; letter-spacing: .32em; text-align: center; height: 
 .keylist li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: .5px solid var(--sep); }
 .keylist li:first-child { border-top: 0; }
 .keylist .sub { font-size: 12px; color: var(--label-3); }
+
+/* =====================================================================
+   v3 app layout: 4-item sidebar, action button, user menu, sheets
+   ===================================================================== */
+.side { padding: 14px 10px 10px; gap: 4px; }
+.brandbar { padding: 4px 8px 14px; display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 14.5px; }
+.brandbar .brand-mark { width: 30px; height: 30px; border-radius: 8px; }
+.new-entry { height: 34px; width: 100%; border-radius: 9px; font-size: 13.5px; font-weight: 600; margin-bottom: 14px; gap: 7px; }
+.new-entry .ico { width: 15px; height: 15px; stroke-width: 2.4; }
+.nav { padding: 0; gap: 2px; }
+.nav a { height: 34px; padding: 0 8px; gap: 10px; font-size: 13.5px; font-weight: 500; border-radius: 8px; }
+.nav a .tile, .tile { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; color: #fff; flex: none; box-shadow: inset 0 0 0 .5px rgba(255,255,255,.2), 0 1px 2px rgba(0,0,0,.15); }
+.nav a .tile .ico { width: 14px; height: 14px; color: #fff; stroke-width: 2; }
+.nav a[aria-current="page"] { background: var(--accent); color: #fff; font-weight: 600; }
+.nav a[aria-current="page"] .badge { background: #fff; color: var(--accent); }
+.tile.sm { width: 30px; height: 30px; border-radius: 7px; }
+.tile.sm b { font: 700 10.5px var(--sans); letter-spacing: .02em; }
+.side-foot { margin-top: auto; border-top: .5px solid var(--sep); padding-top: 8px; }
+.me { width: 100%; display: flex; align-items: center; gap: 9px; padding: 6px 8px; border: 0; background: transparent; border-radius: 8px; cursor: pointer; text-align: left; }
+.me:hover { background: var(--fill); }
+.me .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.me .nm { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.me .rl { font-size: 11.5px; color: var(--label-3); }
+.me > .ico { color: var(--label-3); }
+.menu { position: fixed; z-index: 70; min-width: 230px; padding: 5px; border-radius: 10px; background: var(--glass); backdrop-filter: blur(40px) saturate(1.8); -webkit-backdrop-filter: blur(40px) saturate(1.8); box-shadow: var(--shadow-pop); display: flex; flex-direction: column; }
+.menu-head { padding: 8px 10px 6px; display: flex; flex-direction: column; font-size: 12px; color: var(--label-3); }
+.menu-head b { color: var(--label); font-size: 13px; }
+.menu hr { border: 0; border-top: .5px solid var(--sep); margin: 4px 6px; }
+.menu button { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 10px; border: 0; background: transparent; border-radius: 6px; cursor: pointer; font-size: 13px; text-align: left; }
+.menu button:hover, .menu button:focus-visible { background: var(--accent); color: #fff; outline: none; }
+.menu button.danger { color: var(--red); } .menu button.danger:hover { color: #fff; background: var(--red); }
+@media (prefers-reduced-motion: no-preference) { .menu { animation: menuin .18s var(--ease); transform-origin: bottom left; } @keyframes menuin { from { opacity: 0; transform: scale(.96); } } }
+
+.ph-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.ph-row .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.page-head h1 { font-size: 28px; }
+.view-bar { margin: -4px 0 18px; }
+.seg-view button { height: 28px; padding: 0 14px; display: inline-flex; align-items: center; gap: 6px; }
+.seg-view .c { font-size: 11px; font-weight: 600; min-width: 18px; height: 17px; padding: 0 5px; border-radius: 9px; display: inline-grid; place-items: center; background: var(--fill-2); color: var(--label-2); }
+.home-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 28px; align-items: start; }
+.home-grid > div > .section:first-child, .home-grid > aside.section { margin-top: 0; }
+@media (max-width: 1080px) { .home-grid { grid-template-columns: 1fr; } }
+button.row { width: 100%; border: 0; background: transparent; text-align: left; font: inherit; color: inherit; }
+.due-row > .ico { color: var(--label-3); width: 14px; height: 14px; }
+.list > * + *::before { left: 14px; }
+.list > .due-row + .due-row::before { left: 54px; }
+
+/* sheet: slides down from the top, like a macOS window sheet */
+.sheet { position: fixed; z-index: 41; top: 0; left: 50%; transform: translateX(-50%); width: min(760px, calc(100% - 24px)); max-height: calc(100vh - 40px);
+  display: flex; flex-direction: column; background: var(--canvas); border-radius: 0 0 14px 14px; box-shadow: var(--shadow-win); overflow: hidden; }
+@media (prefers-reduced-motion: no-preference) { .sheet { animation: sheetdown .45s var(--spring); } @keyframes sheetdown { from { transform: translate(-50%, -100%); } } }
+.sheet-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: .5px solid var(--sep); background: var(--win); }
+.sheet-head h2 { font-size: 15px; } .sheet-head .faint { flex: 1; }
+.sheet-body { overflow-y: auto; }
+.log-form { background: var(--win); }
+.log-form .form-foot { position: sticky; bottom: 0; background: color-mix(in srgb, var(--win) 88%, transparent); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+.sheet .receipt { background: var(--win); }
+
+@media (max-width: 900px) {
+  .side { padding: 10px 12px 6px; gap: 0; }
+  .brandbar { padding: 0 0 8px; }
+  .new-entry { position: fixed; right: 16px; bottom: 16px; z-index: 30; width: auto; height: 44px; padding: 0 18px; border-radius: 22px; margin: 0; box-shadow: 0 8px 24px rgba(0, 60, 140, .35); }
+  .nav { flex-direction: row; overflow-x: auto; padding: 0 0 6px; }
+  .nav a { flex: none; height: 32px; }
+  .side-foot { position: absolute; top: 8px; right: 10px; margin: 0; border: 0; padding: 0; }
+  .me .who, .me > .ico { display: none; }
+  .side, .has-demo .side { height: auto; backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--canvas); }
+  .brandbar { justify-content: flex-start; }
+  .brandbar small { display: none; }
+  .home-grid, .cols { grid-template-columns: minmax(0, 1fr); }
+  .sheet { width: 100%; max-height: 100vh; border-radius: 0; }
+}

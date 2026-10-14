@@ -85,6 +85,9 @@ const ICONS = {
   fingerprint: "M12 11v3c0 2.5-.6 4.6-1.7 6.3M8.5 7.5A5 5 0 0 1 17 11v1.5M7 11a5 5 0 0 1 .4-2M15 15.5c-.2 1.6-.6 3-1.2 4.3M4.5 9.5A8 8 0 0 1 19.6 8M20 12v1",
   signout: "M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 8l-4 4 4 4M6 12h10",
   chevron: "M15 6l-6 6 6 6",
+  plus: "M12 5v14M5 12h14",
+  updown: "M8 9l4-4 4 4M8 15l4 4 4-4",
+  arrow: "M9 6l6 6-6 6",
 };
 function icon(name) {
   const s = svg("svg", { class: "ico", viewBox: "0 0 24 24", "aria-hidden": "true" });
@@ -449,21 +452,50 @@ const viewRemoved = () => viewSolo("Your access has been removed", [
 
 /* =====================================================================
    app window + routing
+   Supervisors: Home · Activity · Checklist · Team   Analysts: Home · My log
+   "New log entry" is an action (a sheet), not a page. Account, settings and
+   sign-out live in the menu under your name.
    ===================================================================== */
-const ROUTES_ANALYST = [["log", "Log a check"], ["history", "My checks"], ["account", "Account"]];
-const ROUTES_SUP = [["overview", "Overview"], ["activity", "Activity"], ["coverage", "Coverage"], ["people", "People"],
-  ["checklist", "Checklist"], ["audit", "Audit trail"], ["settings", "Settings"], ["log", "Log a check"], ["history", "My checks"], ["account", "Account"]];
+const NAV = {
+  sup: [["home", "Home", "overview", "#0a84ff"], ["activity", "Activity", "activity", "#ff9f0a"], ["checks", "Checklist", "checklist", "#30b158"], ["team", "Team", "people", "#8e8e93"]],
+  an: [["home", "Home", "overview", "#0a84ff"], ["activity", "My log", "history", "#ff9f0a"]],
+};
+const TITLES = { home: "Home", activity: "Activity", checks: "Checklist", team: "Team", account: "Account", settings: "Team settings" };
+const LEGACY = { overview: "home", log: "home", history: "activity", coverage: "checks", checklist: "checks", people: "team", audit: "team" };
 const PAGES = {};
+const roleKey = () => isSup() ? "sup" : "an";
+
+function userMenu(anchor) {
+  document.querySelector(".menu")?.remove();
+  const close = () => { menu.remove(); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", esc); };
+  const outside = e => { if (!menu.contains(e.target) && !anchor.contains(e.target)) close(); };
+  const esc = e => { if (e.key === "Escape") close(); };
+  const item = (ic, label, fn, cls) => h("button", { type: "button", role: "menuitem", class: cls || null, onclick: () => { close(); fn(); } }, icon(ic), label);
+  const menu = h("div", { class: "menu", role: "menu" },
+    h("div", { class: "menu-head" }, h("b", { text: S.me.full_name }), h("span", { text: S.me.email })),
+    item("account", "Account & security", () => location.hash = "#/account"),
+    isSup() ? item("settings", "Team settings", () => location.hash = "#/settings") : null,
+    h("hr"), item("signout", "Sign out", signOut, "danger"));
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, r.left)}px`;
+  if (r.top > 260) menu.style.bottom = `${innerHeight - r.top + 6}px`; else menu.style.top = `${r.bottom + 6}px`;
+  document.body.append(menu); menu.querySelector("button").focus();
+  setTimeout(() => { document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", esc); });
+}
+async function signOut() {
+  if (!(await confirmBox({ title: "Sign out of SOC Log?", ok: "Sign out" }))) return;
+  await S.api.signOut(); S.me = null; S.team = null; location.hash = "#/"; route();
+}
 
 function shell(current, content) {
-  const routes = isSup() ? ROUTES_SUP : ROUTES_ANALYST;
-  const label = (routes.find(r => r[0] === current) || [, ""])[1];
+  const items = NAV[roleKey()];
+  const label = TITLES[current] || "";
   const pending = isSup() ? S.people.filter(p => p.status === "pending").length : 0;
   const openEsc = isSup() && S.team ? S.team.filter(isOpenEsc).length : 0;
-  const badge = id => id === "people" && pending ? pending : id === "activity" && openEsc ? openEsc : 0;
+  const badge = id => id === "team" && pending ? pending : id === "activity" && openEsc ? openEsc : 0;
   const existing = app.querySelector(".shell");
-  if (existing && existing.dataset.role === (isSup() ? "sup" : "an")) {
-    document.querySelectorAll(".scrim, .drawer, .dialog").forEach(e => e.remove());
+  document.querySelectorAll(".scrim, .drawer, .dialog, .menu").forEach(e => e.remove());
+  if (existing && existing.dataset.role === roleKey()) {
     existing.querySelectorAll(".nav a").forEach(a => { const id = a.dataset.id; a.setAttribute("aria-current", id === current ? "page" : "false");
       a.querySelector(".badge")?.remove(); if (badge(id)) a.append(h("span", { class: "badge", text: badge(id) })); });
     existing.querySelector(".toolbar .tt").textContent = label;
@@ -471,36 +503,36 @@ function shell(current, content) {
     document.title = `${label} · SOC Log`; content.querySelectorAll("[data-n]").forEach(countUp);
     return;
   }
-  const link = ([id, lbl]) => h("a", { href: `#/${id}`, "data-id": id, "aria-current": id === current ? "page" : "false" }, icon(id), lbl, badge(id) ? h("span", { class: "badge", text: badge(id) }) : null);
-  const nav = isSup()
-    ? [h("div", { class: "group", text: "Team" }), ...routes.slice(0, 4).map(link), h("div", { class: "group", text: "Admin" }), ...routes.slice(4, 7).map(link),
-       h("div", { class: "group", text: "My work" }), ...routes.slice(7).map(link)]
-    : routes.map(link);
-  const signOut = async () => { if (!(await confirmBox({ title: "Sign out of SOC Log?", ok: "Sign out" }))) return; await S.api.signOut(); S.me = null; S.team = null; location.hash = "#/"; route(); };
+  const link = ([id, lbl, ic, color]) => h("a", { href: `#/${id}`, "data-id": id, "aria-current": id === current ? "page" : "false" },
+    h("span", { class: "tile", style: `background:${color}` }, icon(ic)), lbl, badge(id) ? h("span", { class: "badge", text: badge(id) }) : null);
+  const meBtn = h("button", { class: "me", type: "button", "aria-haspopup": "menu", onclick: e => userMenu(e.currentTarget) },
+    avatar(S.me.id, S.me.full_name), h("span", { class: "who" }, h("span", { class: "nm", text: S.me.full_name }), h("span", { class: "rl", text: isSup() ? "Supervisor" : "Analyst" })), icon("updown"));
   const toolbar = h("div", { class: "toolbar" }, h("span", { class: "tt", text: label }));
-  const main = h("main", { class: "main" }, toolbar, h("div", { class: "content page-enter", id: "main" }, content));
-  mount(h("div", { class: "shell", "data-role": isSup() ? "sup" : "an" },
+  mount(h("div", { class: "shell", "data-role": roleKey() },
     h("aside", { class: "side" },
-      h("div", { class: "side-top" }, h("div", { class: "lights" }, h("i"), h("i"), h("i"))),
-      h("div", { class: "brandbar" }, h("div", { style: "display:flex;gap:9px;align-items:center" }, h("span", { class: "brand-mark" }, icon("shield")),
-        h("div", {}, "SOC Log", h("small", { text: S.settings.org_name || "Seton Hall University" }))),
-        h("div", { class: "mobile-user" }, avatar(S.me.id, S.me.full_name), h("button", { class: "btn sm", type: "button", text: "Sign out", onclick: signOut }))),
-      h("nav", { class: "nav", "aria-label": "Main" }, nav),
-      h("div", { class: "side-user" }, avatar(S.me.id, S.me.full_name),
-        h("div", { class: "who" }, h("div", { class: "nm", text: S.me.full_name }), h("div", { class: "rl", text: isSup() ? "Supervisor" : "Analyst" })),
-        h("button", { class: "btn quiet sm", type: "button", title: "Sign out", "aria-label": "Sign out", onclick: signOut }, icon("signout")))),
-    main));
+      h("div", { class: "brandbar" }, h("span", { class: "brand-mark" }, icon("shield")), h("div", {}, "SOC Log", h("small", { text: S.settings.org_name || "Seton Hall University" }))),
+      h("button", { class: "btn primary new-entry", type: "button", onclick: () => openLogSheet() }, icon("plus"), "New log entry"),
+      h("nav", { class: "nav", "aria-label": "Main" }, items.map(link)),
+      h("div", { class: "side-foot" }, meBtn)),
+    h("main", { class: "main" }, toolbar, h("div", { class: "content page-enter", id: "main" }, content))));
   document.title = `${label} · SOC Log`;
   content.querySelectorAll("[data-n]").forEach(countUp);
   const onScroll = () => toolbar.classList.toggle("scrolled", window.scrollY > 40);
   window.removeEventListener("scroll", S.onScroll || (() => {})); S.onScroll = onScroll; window.addEventListener("scroll", onScroll, { passive: true });
 }
 function pageHead(title, sub, ...actions) {
+  actions = actions.flat().filter(Boolean);
   return h("header", { class: "page-head" },
-    h("div", { style: "display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap" }, h("h1", { text: title }),
-      actions.length ? h("div", { class: "actions", style: "display:flex;gap:8px;flex-wrap:wrap" }, actions) : null),
+    h("div", { class: "ph-row" }, h("h1", { text: title }), actions.length ? h("div", { class: "actions" }, actions) : null),
     sub ? h("p", { text: sub }) : null);
 }
+/* macOS segmented control used for in-page views */
+function segmented(options, current, onPick) {
+  return h("div", { class: "seg seg-view", role: "tablist" }, options.map(([k, label, count]) =>
+    h("button", { type: "button", role: "tab", "aria-pressed": String(k === current), "aria-selected": String(k === current), onclick: () => onPick(k) },
+      label, count ? h("span", { class: "c", text: count }) : null)));
+}
+const greeting = () => { const hr = new Date().getHours(); return hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening"; };
 
 async function loadTeam(force = false) {
   if (!isSup()) return;
@@ -539,13 +571,15 @@ async function route() {
     if (S.me.status === "removed") return viewRemoved();
     S.api.touch().catch(() => {});
     if (!S.practices.length) { S.practices = await S.api.practices(); S.P = Object.fromEntries(S.practices.map(p => [p.id, p])); }
-    const routes = (isSup() ? ROUTES_SUP : ROUTES_ANALYST).map(r => r[0]);
-    let id = hash;
-    if (!routes.includes(id)) { id = isSup() ? "overview" : "log"; history.replaceState(null, "", `#/${id}`); }
+    let id = hash, openNew = false;
+    if (LEGACY[id]) { if (id === "log") openNew = true; if (id === "checklist") S.checksView = "edit"; if (id === "audit") S.teamView = "audit"; id = LEGACY[id]; history.replaceState(null, "", `#/${id}`); }
+    const allowed = [...NAV[roleKey()].map(r => r[0]), "account", ...(isSup() ? ["settings"] : [])];
+    if (!allowed.includes(id)) { id = "home"; history.replaceState(null, "", "#/home"); }
     if (!app.querySelector(".shell")) shell(id, h("div", { class: "loading" }, h("div", { class: "spinner" })));
     try {
       await Promise.all([loadMine(), loadTeam()]);
       shell(id, await PAGES[id]());
+      if (openNew) openLogSheet();
     } catch (x) {
       shell(id, h("div", { class: "notice bad", text: x.message || "Something went wrong loading this page." }));
     }
@@ -554,9 +588,28 @@ async function route() {
 window.addEventListener("hashchange", () => route());
 
 /* =====================================================================
+   new log entry (sheet)
+   ===================================================================== */
+function openLogSheet(prefill) {
+  document.querySelectorAll(".scrim, .sheet").forEach(e => e.remove());
+  const close = () => { scrim.remove(); sheet.remove(); document.removeEventListener("keydown", esc); };
+  const esc = e => { if (e.key === "Escape") close(); };
+  const scrim = h("div", { class: "scrim", onclick: close });
+  const body = h("div", { class: "sheet-body" });
+  const sheet = h("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-label": "New log entry" },
+    h("div", { class: "sheet-head" }, h("h2", { text: "New log entry" }), h("span", { class: "faint small", text: `Logging as ${S.me.full_name}` }),
+      h("button", { class: "btn sm", type: "button", text: "Cancel", onclick: close })), body);
+  const showForm = p => body.replaceChildren(buildLogForm({ practice: p, onSaved: saved => {
+    body.replaceChildren(receipt(saved, { again: () => showForm(null), done: () => { close(); route(); } })); body.scrollTop = 0; } }));
+  showForm(prefill);
+  document.body.append(scrim, sheet); document.addEventListener("keydown", esc);
+  (sheet.querySelector(prefill ? ".outcome" : ".seg button") || sheet.querySelector("button")).focus();
+}
+
+/* =====================================================================
    page: log a check
    ===================================================================== */
-PAGES.log = async () => {
+function buildLogForm({ practice = null, onSaved }) {
   const F = { tool: null, practice: "", result: null, when: "now" };
   const tools = [...new Set(S.practices.filter(p => p.active).map(p => p.tool))];
   const err = h("p", { class: "err", role: "alert" });
@@ -613,7 +666,7 @@ PAGES.log = async () => {
     issueBlock.hidden = !needT; blockBlock.hidden = k !== "incomplete";
   }
 
-  const form = h("form", { class: "panel", novalidate: true, onsubmit: async e => {
+  const form = h("form", { class: "log-form", novalidate: true, onsubmit: async e => {
     e.preventDefault(); err.textContent = ""; form.querySelectorAll(".invalid").forEach(x => x.classList.remove("invalid"));
     const bad = (el, msg) => { if (el) { el.classList.add("invalid"); el.focus(); } err.textContent = msg; };
     if (!F.tool) return bad(null, "Pick the tool you used.");
@@ -643,8 +696,7 @@ PAGES.log = async () => {
       try {
         const saved = await S.api.addLog(row);
         S.mine.unshift(saved); if (S.team) S.team.unshift(saved);
-        document.getElementById("main").replaceChildren(pageHead("Log a check", "Saved."), receipt(saved));
-        window.scrollTo(0, 0);
+        onSaved(saved);
       } catch (x) { err.textContent = x.message; }
     });
   } },
@@ -663,34 +715,26 @@ PAGES.log = async () => {
     h("div", { class: "form-foot" }, h("span", { class: "help", text: `Logging as ${S.me.full_name}. The save time comes from the server.` }),
       h("div", { style: "display:flex;gap:12px;align-items:center;flex-wrap:wrap" }, err, h("button", { class: "btn primary", type: "submit", text: "Save log entry" }))));
 
-  const recent = S.mine.slice(0, 6);
-  const todayCount = S.mine.filter(l => dayKey(l.performed_at) === dayKey(Date.now())).length;
-  const aside = h("aside", { class: "panel aside-card" },
-    h("div", { class: "section-head", style: "margin:0" }, h("h2", { text: "Your recent checks" }), h("a", { href: "#/history", class: "small", text: "See all" })),
-    h("p", { class: "dim small", text: todayCount ? `${plural(todayCount, "check")} logged today.` : "Nothing logged today yet." }),
-    recent.length ? h("div", { class: "mini-list" }, recent.map(l => h("div", {},
-      h("div", { style: "display:flex;justify-content:space-between;gap:8px" }, h("span", { class: "small faint", text: when(l.performed_at) }), resultTag(l.result)),
-      h("span", { text: (S.P[l.practice_id] || {}).name || l.practice_id })))) : null);
+  if (practice && S.P[practice]) { setTool(S.P[practice].tool); sel.value = practice; F.practice = practice; showInfo(); }
+  return form;
+}
 
-  return h("div", {}, pageHead("Log a check", "Fill this in as soon as you finish a check."), h("div", { class: "log-layout" }, form, aside));
-};
-
-function receipt(l) {
+function receipt(l, { again, done }) {
   const p = S.P[l.practice_id] || {};
-  return h("div", { class: "panel receipt" },
-    h("span", { class: "check" }, icon("check")), h("span", { class: "label", text: "Entry saved" }), h("div", { class: "ref", text: l.ref }),
+  return h("div", { class: "receipt" },
+    h("span", { class: "check" }, icon("check")), h("h2", { text: "Saved to the log" }), h("div", { class: "ref", text: l.ref }),
     h("dl", {}, h("dt", { text: "Check" }), h("dd", { text: p.name }), h("dt", { text: "Result" }), h("dd", {}, resultTag(l.result)),
       h("dt", { text: "Performed" }), h("dd", { text: full(l.performed_at) }), h("dt", { text: "Saved (server)" }), h("dd", { text: full(l.created_at) }),
       l.ticket ? [h("dt", { text: "Ticket" }), h("dd", { class: "mono", text: l.ticket })] : null),
     l.result === "escalated" ? h("div", { class: "notice warn", text: "Escalations show up for your supervisor right away. If it's urgent, also call or message them directly." }) : null,
-    h("div", { style: "display:flex;gap:8px" }, h("button", { class: "btn primary", type: "button", text: "Log another check", onclick: () => route() }),
-      h("a", { class: "btn", href: "#/history", text: "My checks" })));
+    h("div", { style: "display:flex;gap:8px" }, h("button", { class: "btn primary", type: "button", text: "Done", onclick: done }),
+      h("button", { class: "btn", type: "button", text: "Log another check", onclick: again })));
 }
 
 /* =====================================================================
    page: my checks
    ===================================================================== */
-PAGES.history = async () => {
+async function myLog() {
   const rows = S.mine;
   const wk = rows.filter(l => Date.now() - t(l.performed_at) < 7 * DAY).length;
   const body = rows.length ? h("div", { class: "table-wrap" }, h("table", {},
@@ -700,9 +744,9 @@ PAGES.history = async () => {
         h("td", { class: "nowrap num", text: when(l.performed_at) }), h("td", {}, h("div", { text: p.name || l.practice_id }), h("div", { class: "sub", text: p.tool })),
         h("td", {}, resultTag(l.result)), h("td", { class: "mono nowrap", text: l.ticket || "—" }), h("td", { class: "mono nowrap faint", text: l.ref }),
         h("td", {}, rv ? outcomeTag(rv.outcome) : h("span", { class: "faint", text: "—" }))); }))))
-    : h("div", { class: "panel empty" }, h("b", { text: "No checks yet" }), "Your log entries will appear here.", h("div", { style: "margin-top:12px" }, h("a", { class: "btn primary", href: "#/log", text: "Log your first check" })));
-  return h("div", {}, pageHead("My checks", `${rows.length} ${rows.length === 1 ? "entry" : "entries"} on record · ${wk} in the last 7 days. Entries can't be changed after saving. If something's wrong, log a correction and mention the original entry number.`), body);
-};
+    : h("div", { class: "panel empty" }, h("b", { text: "No checks yet" }), "Your log entries will appear here.", h("div", { style: "margin-top:12px" }, h("button", { class: "btn primary", type: "button", text: "Log your first check", onclick: () => openLogSheet() })));
+  return h("div", {}, pageHead("My log", `${rows.length} ${rows.length === 1 ? "entry" : "entries"} on record · ${wk} in the last 7 days. Entries can't be changed after saving. If something's wrong, log a correction and mention the original entry number.`), body);
+}
 
 /* =====================================================================
    log detail drawer
@@ -792,7 +836,7 @@ function barChart(logs) {
   return wrap;
 }
 
-PAGES.overview = async () => {
+async function supHome() {
   const L = S.team, now = Date.now();
   const today = L.filter(l => dayKey(l.performed_at) === dayKey(now)).length;
   const wk = L.filter(l => now - t(l.performed_at) < 7 * DAY).length, prev = L.filter(l => now - t(l.performed_at) >= 7 * DAY && now - t(l.performed_at) < 14 * DAY).length;
@@ -808,9 +852,9 @@ PAGES.overview = async () => {
   const attention = [
     ...open.slice(0, 6).map(l => h("div", { class: "row click", onclick: () => openLog(l) }, h("span", { class: "tag bad" }, h("i"), "Escalation"),
       h("div", { class: "grow" }, h("div", { text: (S.P[l.practice_id] || {}).name }), h("div", { class: "faint small", text: `${nameOf(l.user_id)} · ${when(l.performed_at)}` })))),
-    ...pending.map(p => h("a", { class: "row", href: "#/people" }, h("span", { class: "tag brand" }, h("i"), "Approval"),
+    ...pending.map(p => h("a", { class: "row", href: "#/team" }, h("span", { class: "tag brand" }, h("i"), "Approval"),
       h("div", { class: "grow" }, h("div", { text: p.full_name }), h("div", { class: "faint small", text: `${p.email} · signed up ${rel(p.created_at).toLowerCase()}` })))),
-    ...overdue.filter(x => x.p.priority === "Critical" || x.p.priority === "High").slice(0, 8).map(x => h("a", { class: "row", href: "#/coverage" }, h("span", { class: `tag ${x.s.cls}` }, h("i"), x.s.label),
+    ...overdue.filter(x => x.p.priority === "Critical" || x.p.priority === "High").slice(0, 8).map(x => h("a", { class: "row", href: "#/checks" }, h("span", { class: `tag ${x.s.cls}` }, h("i"), x.s.label),
       h("div", { class: "grow" }, h("div", { text: x.p.name }), h("div", { class: "small" }, h("span", { class: `prio ${x.p.priority}`, text: x.p.priority }), h("span", { class: "faint", text: ` · ${x.p.tool} · ${x.p.frequency}` }))))),
   ];
   const analysts = S.people.filter(p => p.status === "active");
@@ -821,9 +865,9 @@ PAGES.overview = async () => {
     .sort((a, b) => b.m - a.m);
 
   return h("div", {},
-    pageHead("Overview", `${S.settings.org_name || "SOC"} · ${new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}`,
+    pageHead(`${greeting()}, ${S.me.full_name.split(" ")[0]}`, `${new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}. Here's where the SOC stands.`,
       h("button", { class: "btn", type: "button", text: "Refresh", onclick: async e => { await busy(e.target, "Refreshing…", () => loadTeam(true)); route(); } }),
-      h("a", { class: "btn primary", href: "#/activity", text: "View all activity" })),
+      h("a", { class: "btn", href: "#/activity", text: "All activity" })),
     h("div", { class: "stats" },
       stat(today, "Today", "checks logged"),
       stat(wk, "Last 7 days", delta === 0 ? "same as the week before" : `${delta > 0 ? "+" : ""}${delta} vs the week before`),
@@ -842,12 +886,12 @@ PAGES.overview = async () => {
       h("div", { style: "display:flex;flex-direction:column;gap:24px;min-width:0" },
         h("section", {}, h("div", { class: "section-head" }, h("h2", { text: "Needs your attention" }), h("span", { class: "small faint", text: `${attention.length} item${attention.length === 1 ? "" : "s"}` })),
           h("div", { class: "panel list" }, attention.length ? attention : h("div", { class: "empty" }, h("b", { text: "All caught up" }), "No escalations, approvals or overdue critical checks."))),
-        h("section", {}, h("div", { class: "section-head" }, h("h2", { text: "Team, last 30 days" }), h("a", { class: "small", href: "#/people", text: "Manage people" })),
+        h("section", {}, h("div", { class: "section-head" }, h("h2", { text: "Team, last 30 days" }), h("a", { class: "small", href: "#/team", text: "Manage people" })),
           h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", { text: "Analyst" }), h("th", { text: "7d" }), h("th", { text: "30d" }), h("th", { text: "Esc." }), h("th", { text: "Flags" }), h("th", { text: "Last check" }))),
             h("tbody", {}, team.map(x => h("tr", { class: "click", onclick: () => { S.filters = { ...S.filters, user: x.p.id }; location.hash = "#/activity"; } },
               h("td", {}, x.p.full_name, x.p.role === "supervisor" ? h("span", { class: "faint small", text: " · sup." }) : null), h("td", { class: "num", text: x.w }), h("td", { class: "num", text: x.m }),
               h("td", { class: "num", text: x.esc }), h("td", { class: "num", text: x.fl }), h("td", { class: "nowrap faint", text: x.last ? rel(x.last) : "Never" }))))))))));
-};
+}
 
 /* =====================================================================
    page: activity (supervisor)
@@ -871,7 +915,7 @@ function exportCsv(rows) {
       l.details, l.affected, l.action_taken, l.blocker, l.ticket, flagsOf(l).join("; "), r ? OUTCOMES[r.outcome].label : "", r ? nameOf(r.reviewer_id) : "", r ? r.reviewed_at : "", r ? r.note : ""].map(q).join(","); });
   download(`soc-log-${dayKey(Date.now())}.csv`, [head.map(q).join(","), ...lines].join("\r\n"));
 }
-PAGES.activity = async () => {
+async function teamActivity() {
   const f = S.filters;
   const tbody = h("tbody"); const count = h("p", { class: "small faint", style: "margin-top:10px" });
   const draw = () => {
@@ -903,12 +947,12 @@ PAGES.activity = async () => {
       h("button", { class: "btn", type: "button", text: "Clear filters", onclick: () => { S.filters = { q: "", user: "", tool: "", result: "", status: "", from: "", to: "" }; route(); } }),
       h("button", { class: "btn primary", type: "button", text: "Export CSV", onclick: () => { exportCsv(filterLogs()); toast("CSV downloaded"); } })),
     filters, h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["Performed", "Analyst", "Check", "Result", "Details", "Ticket", "Review / flags"].map(x => h("th", { text: x })))), tbody)), count);
-};
+}
 
 /* =====================================================================
    page: coverage (supervisor)
    ===================================================================== */
-PAGES.coverage = async () => {
+async function coverageView() {
   const last = lastByPractice(), now = Date.now(), f = S.covFilter;
   const all = S.practices.map(p => ({ p, l: last[p.id], s: coverageStatus(p, last[p.id] && last[p.id].performed_at),
     n: S.team.filter(l => l.practice_id === p.id && now - t(l.performed_at) < 30 * DAY).length }));
@@ -934,12 +978,12 @@ PAGES.coverage = async () => {
     h("div", { class: "filters" }, toolSel, stSel),
     h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["Check", "Tool", "Frequency", "Priority", "Last done", "30d", "Status"].map(x => h("th", { text: x })))), tbody)),
     h("p", { class: "small faint", style: "margin-top:10px", text: "Daily and continuous checks are overdue after a missed weekday. Weekly after 7 days, monthly after 31, quarterly after 92, annually after 366. Change frequencies on the Checklist page." }));
-};
+}
 
 /* =====================================================================
    page: people (supervisor)
    ===================================================================== */
-PAGES.people = async () => {
+async function peopleView() {
   const now = Date.now();
   const groups = { pending: S.people.filter(p => p.status === "pending"), active: S.people.filter(p => p.status === "active"), removed: S.people.filter(p => p.status === "removed") };
   const act = async (p, patch, msg, conf) => {
@@ -978,14 +1022,14 @@ PAGES.people = async () => {
   return h("div", {},
     pageHead("People", "Give people access, change roles and remove access. Every change is recorded in the audit trail."),
     h("div", { class: "notice", style: "display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:20px" },
-      h("span", {}, "To add someone, send them this link. They create an account and show up under Pending for you to approve: ", h("span", { class: "mono", text: siteUrl })),
+      h("span", {}, "To add someone, send them this link. They create an account and show up under Waiting for approval: ", h("span", { class: "mono", text: siteUrl })),
       h("button", { class: "btn sm", type: "button", text: "Copy link", onclick: async () => { try { await navigator.clipboard.writeText(siteUrl); toast("Link copied"); } catch { toast("Copy didn't work. Select the link and copy it."); } } })),
     h("div", { class: "tabbar", role: "tablist" }, [["pending", "Pending"], ["active", "Active"], ["removed", "Removed"]].map(([k, label]) =>
       h("button", { type: "button", role: "tab", "aria-selected": String(k === tab), onclick: () => { S.peopleTab = k; route(); } }, label, h("span", { class: "c", text: groups[k].length })))),
     rows.length ? h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, head.map(x => h("th", { text: x })))), h("tbody", {}, rows.map(p => h("tr", {}, cells(p))))))
       : h("div", { class: "panel empty" }, h("b", { text: { pending: "No one is waiting", active: "No active members", removed: "No one has been removed" }[tab] }),
         tab === "pending" ? "New sign-ups appear here for you to approve." : ""));
-};
+}
 
 /* =====================================================================
    page: checklist (supervisor)
@@ -1020,7 +1064,7 @@ function editPractice(p) {
       fld("What to do", f.details, "pDetails"), fld("Where to find it (click path)", f.how_to, "pHow"), err, h("div", {}, save)));
   document.body.append(scrim, drawer);
 }
-PAGES.checklist = async () => {
+async function checklistView() {
   const toggle = p => { const lab = h("label", { class: "switch", title: p.active ? "On" : "Off" });
     const inp = h("input", { type: "checkbox", "aria-label": `${p.name} active` }); inp.checked = p.active;
     inp.addEventListener("change", async () => { try { await S.api.savePractice(p.id, { active: inp.checked }); p.active = inp.checked; toast(inp.checked ? "Check turned on" : "Check turned off. Analysts won't see it."); }
@@ -1035,12 +1079,12 @@ PAGES.checklist = async () => {
       h("tbody", {}, S.practices.map(p => h("tr", {}, h("td", {}, toggle(p)), h("td", {}, h("div", { text: p.name }), h("div", { class: "sub", text: p.category })),
         h("td", { class: "nowrap", text: p.tool }), h("td", {}, quickSel(p, "frequency", FREQS)), h("td", {}, quickSel(p, "priority", PRIOS)),
         h("td", {}, h("button", { class: "btn sm quiet", type: "button", text: "Edit", onclick: () => editPractice(p) }))))))));
-};
+}
 
 /* =====================================================================
    page: audit trail (supervisor)
    ===================================================================== */
-PAGES.audit = async () => {
+async function auditView() {
   S.audit = await S.api.audit();
   const who = id => id ? nameOf(id) : "System";
   const say = e => { const tgt = e.target_id ? nameOf(e.target_id) : (e.detail && e.detail.email) || ""; const d = e.detail || {};
@@ -1054,6 +1098,83 @@ PAGES.audit = async () => {
     S.audit.length ? h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["When", "Who", "What happened"].map(x => h("th", { text: x })))),
       h("tbody", {}, S.audit.map(e => h("tr", {}, h("td", { class: "nowrap num", title: full(e.at), text: when(e.at) }), h("td", { class: "nowrap", text: e.action === "signed_up" ? "—" : who(e.actor_id) }), h("td", { text: say(e) }))))))
       : h("div", { class: "panel empty" }, h("b", { text: "Nothing yet" }), "Access changes will be recorded here."));
+}
+
+
+/* =====================================================================
+   pages (navigation targets)
+   ===================================================================== */
+const strip = (node, extraSel) => { const head = node.querySelector(".page-head"); const actions = head ? [...(head.querySelector(".actions")?.children || [])] : []; head?.remove(); if (extraSel) node.querySelectorAll(extraSel).forEach(e => e.remove()); return { node, actions }; };
+
+PAGES.home = async () => isSup() ? supHome() : analystHome();
+
+/* analyst home: what's due for me, grouped the way a shift works */
+function analystHome() {
+  const now = Date.now(), first = S.me.full_name.split(" ")[0];
+  const lastMine = {}; for (const l of S.mine) if (!lastMine[l.practice_id]) lastMine[l.practice_id] = l;
+  const today = S.mine.filter(l => dayKey(l.performed_at) === dayKey(now));
+  const status = p => { const l = lastMine[p.id]; if (l && dayKey(l.performed_at) === dayKey(now)) return { t: "Done today", c: "ok", r: 3 };
+    const s = coverageStatus(p, l && l.performed_at); return s.label === "On track" ? { t: "Done", c: "ok", r: 2 } : s.label === "Never done" ? { t: "Not done yet", c: "line", r: 1 } : s.label === "Overdue" ? { t: "Due", c: "warn", r: 0 } : { t: "Any time", c: "line", r: 4 }; };
+  const groups = [["Every shift", ["Continuous", "Daily"]], ["This week", ["Weekly"]], ["This month or later", ["Monthly", "Quarterly", "Annually"]], ["When something happens", ["As Needed"]]];
+  const row = p => { const st = status(p), l = lastMine[p.id];
+    return h("button", { type: "button", class: "row click due-row", onclick: () => openLogSheet(p.id) },
+      h("span", { class: "tile sm", style: `background:${toolColor(p.tool)}` }, toolGlyph(p.tool)),
+      h("div", { class: "grow" }, h("div", { text: p.name }), h("div", { class: "faint small" }, h("span", { text: p.tool }), h("span", { class: `prio ${p.priority}`, text: ` · ${p.priority}` }),
+        h("span", { text: l ? ` · you did this ${/ago|now/i.test(rel(l.performed_at)) ? rel(l.performed_at).toLowerCase() : "on " + rel(l.performed_at)}` : "" }))),
+      h("span", { class: `tag ${st.c}`, text: st.t }), icon("arrow")); };
+  const sections = groups.map(([title, freqs]) => {
+    const ps = S.practices.filter(p => p.active && freqs.includes(p.frequency)).sort((a, b) => status(a).r - status(b).r || PRIOS.indexOf(a.priority) - PRIOS.indexOf(b.priority));
+    if (!ps.length) return null;
+    const due = ps.filter(p => status(p).r <= 1).length;
+    return h("section", { class: "section" }, h("div", { class: "section-head" }, h("h2", { text: title }), h("span", { class: "faint small", text: due ? `${due} to do` : "All done" })),
+      h("div", { class: "panel list" }, ps.map(row)));
+  });
+  const recent = S.mine.slice(0, 5);
+  return h("div", {},
+    pageHead(`${greeting()}, ${first}`, today.length ? `You've logged ${plural(today.length, "check")} today. Pick a check below to log it.` : "Nothing logged yet today. Pick a check below to log it.",
+      h("button", { class: "btn primary", type: "button", onclick: () => openLogSheet() }, icon("plus"), "New log entry")),
+    h("div", { class: "home-grid" },
+      h("div", {}, ...sections),
+      h("aside", { class: "section" }, h("div", { class: "section-head" }, h("h2", { text: "Your latest entries" }), h("a", { class: "small", href: "#/activity", text: "My log" })),
+        h("div", { class: "panel list" }, recent.length ? recent.map(l => h("div", { class: "row click", onclick: () => openLog(l) },
+          h("div", { class: "grow" }, h("div", { text: (S.P[l.practice_id] || {}).name }), h("div", { class: "faint small", text: when(l.performed_at) })),
+          S.reviews[l.id] ? outcomeTag(S.reviews[l.id].outcome) : resultTag(l.result))) : h("div", { class: "empty" }, h("b", { text: "No entries yet" }), "Your log entries show up here.")))));
+}
+const TOOL_COLORS = { CrowdStrike: "#e0333b", "Microsoft Defender": "#0a84ff", Splunk: "#65a637", Abnormal: "#5e5ce6", Duo: "#30b158", "Cross-Tool": "#8e8e93" };
+const toolColor = t => TOOL_COLORS[t] || "#8e8e93";
+const toolGlyph = t => h("b", { text: (t === "Cross-Tool" ? "X" : t === "Microsoft Defender" ? "MD" : t.slice(0, 2)).toUpperCase().slice(0, 2) });
+
+/* activity: team log for supervisors, my log for analysts */
+PAGES.activity = async () => {
+  if (!isSup()) return myLog();
+  const v = S.actView || "all";
+  S.filters.status = v === "review" ? "open" : v === "flagged" ? "flagged" : "";
+  S.filters.user = v === "mine" ? S.me.id : (S.filters.user === S.me.id ? "" : S.filters.user);
+  const { node, actions } = strip(await teamActivity(), 'select[aria-label="Status"]');
+  const counts = { review: S.team.filter(isOpenEsc).length, flagged: S.team.filter(l => flagsOf(l).length).length };
+  return h("div", {}, pageHead("Activity", "Every check your team has logged. Click an entry to see the full record and review it.", actions),
+    h("div", { class: "view-bar" }, segmented([["all", "All entries"], ["review", "Needs review", counts.review], ["flagged", "Flagged", counts.flagged], ["mine", "Mine"]], v, k => { S.actView = k; route(); })),
+    node);
+};
+
+/* checklist: coverage and editing in one place */
+PAGES.checks = async () => {
+  const v = S.checksView || "coverage";
+  const { node, actions } = strip(v === "edit" ? await checklistView() : await coverageView());
+  return h("div", {}, pageHead("Checklist", v === "edit" ? "Turn checks on or off, change how often they're due, or add new ones." : "Is every check getting done as often as it should?", actions),
+    h("div", { class: "view-bar" }, segmented([["coverage", "Coverage"], ["edit", "Edit checklist"]], v, k => { S.checksView = k; route(); })), node);
+};
+
+/* team: members, approvals, removed people, audit trail */
+PAGES.team = async () => {
+  const v = S.teamView || (S.people.some(p => p.status === "pending") ? "pending" : "active");
+  const n = st => S.people.filter(p => p.status === st).length;
+  let built;
+  if (v === "audit") built = strip(await auditView());
+  else { S.peopleTab = v; built = strip(await peopleView(), ".tabbar"); }
+  return h("div", {}, pageHead("Team", v === "audit" ? "Every access change, role change, review and checklist edit, with who did it and when." : "Approve new sign-ups, change roles and remove access. Every change is recorded.", built.actions),
+    h("div", { class: "view-bar" }, segmented([["active", "Members", n("active")], ["pending", "Waiting for approval", n("pending")], ["removed", "Removed", n("removed")], ["audit", "Audit trail"]], v, k => { S.teamView = k; route(); })),
+    built.node);
 };
 
 /* =====================================================================
@@ -1065,7 +1186,7 @@ PAGES.settings = async () => {
   const save = h("button", { class: "btn primary", type: "button", text: "Save settings", onclick: () => busy(save, "Saving…", async () => {
     try { const patch = { org_name: org.value.trim() || "SOC", allowed_email_domain: dom.value.trim().replace(/^@/, "").toLowerCase() || null };
       await S.api.saveSettings(patch); Object.assign(S.settings, patch); toast("Settings saved"); } catch (x) { toast(x.message); } }) });
-  return h("div", {}, pageHead("Settings", "Applies to everyone using this SOC log."),
+  return h("div", {}, pageHead("Team settings", "Applies to everyone using this SOC log."),
     h("div", { class: "panel pad", style: "max-width:560px;display:flex;flex-direction:column;gap:16px" },
       h("div", { class: "field" }, h("label", { for: "org", text: "Team name" }), org, h("p", { class: "help", text: "Shown on the sign-in page and at the top of the app." })),
       h("div", { class: "field" }, h("label", { for: "domain", text: "Allowed email domain for sign-up" }), dom,
