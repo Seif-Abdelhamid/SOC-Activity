@@ -1,0 +1,30 @@
+name: Uptime
+# Every 15 minutes: is the website up, and is the Supabase project awake?
+# If either fails, this workflow fails and GitHub emails the repo owner
+# (make sure Settings > Notifications > Actions is on for your account).
+on:
+  schedule: [{ cron: "*/15 * * * *" }]
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env: { SENTINEL_KEY: "${{ secrets.SENTINEL_KEY }}" }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Website responds
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/")
+          echo "website: $code"; test "$code" = 200
+      - name: Supabase is awake
+        run: |
+          url=$(grep -oP 'SUPABASE_URL = "\K[^"]+' js/config.js); key=$(grep -oP 'SUPABASE_ANON_KEY = "\K[^"]+' js/config.js)
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -H "apikey: $key" "$url/auth/v1/health")
+          echo "supabase auth: $code"; test "$code" = 200
+      - name: Alert function responds (only if the SENTINEL_KEY repo secret is set)
+        if: ${{ env.SENTINEL_KEY != '' }}
+        run: |
+          url=$(grep -oP 'SUPABASE_URL = "\K[^"]+' js/config.js)
+          out=$(curl -s --max-time 30 -X POST -H "x-sentinel-key: $SENTINEL_KEY" "$url/functions/v1/sentinel")
+          echo "$out"; echo "$out" | grep -q '"ok":true'

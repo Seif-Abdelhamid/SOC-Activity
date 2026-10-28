@@ -86,6 +86,10 @@ const ICONS = {
   signout: "M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 8l-4 4 4 4M6 12h10",
   chevron: "M15 6l-6 6 6 6",
   plus: "M12 5v14M5 12h14",
+  report: "M5 20V10M10 20V4M15 20v-7M20 20v-4",
+  handoff: "M7 7h10l-3-3M17 17H7l3 3",
+  download: "M12 4v11M7 10l5 5 5-5M5 20h14",
+  paperclip: "M20 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8",
   updown: "M8 9l4-4 4 4M8 15l4 4 4-4",
   arrow: "M9 6l6 6-6 6",
 };
@@ -159,9 +163,10 @@ const S = {
   authMode: "signin", authNote: null, recovering: false, clock: null,
   filters: { q: "", user: "", tool: "", result: "", status: "", from: "", to: "" },
   covFilter: { tool: "", status: "" }, peopleTab: "pending",
+  shifts: [], handoffs: [], dir: {},
 };
 const isSup = () => S.me && S.me.role === "supervisor" && S.me.status === "active";
-const nameOf = id => (S.peopleById[id] && S.peopleById[id].full_name) || (S.me && id === S.me.id ? S.me.full_name : "Unknown");
+const nameOf = id => (S.peopleById[id] && S.peopleById[id].full_name) || (S.dir && S.dir[id]) || (S.me && id === S.me.id ? S.me.full_name : "Unknown");
 const isOpenEsc = l => l.result === "escalated" && (!S.reviews[l.id] || S.reviews[l.id].outcome === "follow_up");
 
 function mount(...nodes) {
@@ -459,10 +464,10 @@ const viewRemoved = () => viewSolo("Your access has been removed", [
    sign-out live in the menu under your name.
    ===================================================================== */
 const NAV = {
-  sup: [["home", "Home", "overview", "#0a84ff"], ["activity", "Activity", "activity", "#ff9f0a"], ["checks", "Checklist", "checklist", "#30b158"], ["team", "Team", "people", "#8e8e93"]],
+  sup: [["home", "Home", "overview", "#0a84ff"], ["activity", "Activity", "activity", "#ff9f0a"], ["checks", "Checklist", "checklist", "#30b158"], ["team", "Team", "people", "#8e8e93"], ["reports", "Reports", "report", "#bf5af2"]],
   an: [["home", "Home", "overview", "#0a84ff"], ["activity", "My log", "history", "#ff9f0a"]],
 };
-const TITLES = { home: "Home", activity: "Activity", checks: "Checklist", team: "Team", account: "Account", settings: "Team settings" };
+const TITLES = { reports: "Reports", home: "Home", activity: "Activity", checks: "Checklist", team: "Team", account: "Account", settings: "Team settings" };
 const LEGACY = { overview: "home", log: "home", history: "activity", coverage: "checks", checklist: "checks", people: "team", audit: "team" };
 const PAGES = {};
 const roleKey = () => isSup() ? "sup" : "an";
@@ -545,6 +550,10 @@ async function loadTeam(force = false) {
   S.reviews = Object.fromEntries(reviews.map(r => [r.log_id, r]));
   S.people = people; S.peopleById = Object.fromEntries(people.map(p => [p.id, p]));
 }
+async function loadShared() {
+  const [shifts, handoffs, dir] = await Promise.all([S.api.shifts().catch(() => []), S.api.handoffs().catch(() => []), isSup() ? Promise.resolve(null) : S.api.directory().catch(() => [])]);
+  S.shifts = shifts; S.handoffs = handoffs; if (dir) S.dir = Object.fromEntries(dir.map(d => [d.id, d.full_name]));
+}
 async function loadMine() {
   S.mine = await S.api.myLogs(S.me.id);
   if (!isSup()) { const rv = await S.api.reviews(); S.reviews = Object.fromEntries(rv.map(r => [r.log_id, r])); }
@@ -579,7 +588,7 @@ async function route() {
     if (!allowed.includes(id)) { id = "home"; history.replaceState(null, "", "#/home"); }
     if (!app.querySelector(".shell")) shell(id, h("div", { class: "loading" }, h("div", { class: "spinner" })));
     try {
-      await Promise.all([loadMine(), loadTeam()]);
+      await Promise.all([loadMine(), loadTeam(), loadShared()]);
       shell(id, await PAGES[id]());
       if (openNew) openLogSheet();
     } catch (x) {
@@ -654,12 +663,32 @@ function buildLogForm({ practice = null, onSaved }) {
     const p = S.P[F.practice]; info.hidden = !p; if (!p) return;
     const mineLast = S.mine.find(l => l.practice_id === p.id);
     const teamLast = S.team && S.team.find(l => l.practice_id === p.id);
-    info.replaceChildren(
+    info.replaceChildren(...[
       h("div", { class: "row" }, h("span", { class: "tag line", text: p.frequency }), h("span", { class: `prio ${p.priority}`, text: `${p.priority} priority` }),
         h("span", { class: "faint small", text: mineLast ? `You last did this ${rel(mineLast.performed_at).toLowerCase()}` : "You haven't logged this one yet" }),
         teamLast && teamLast.user_id !== S.me.id ? h("span", { class: "faint small", text: `· Team: ${rel(teamLast.performed_at).toLowerCase()} by ${nameOf(teamLast.user_id).split(" ")[0]}` }) : null),
       p.details ? h("p", { class: "dim", text: p.details }) : null,
-      p.how_to ? h("div", {}, h("div", { class: "label", style: "margin-bottom:4px", text: "Where to find it" }), h("div", { class: "path", text: p.how_to })) : null);
+      p.how_to ? h("div", {}, h("div", { class: "label", style: "margin-bottom:4px", text: "Where to find it" }), h("div", { class: "path", text: p.how_to })) : null,
+      p.snapshot_source ? snapBox : null].filter(Boolean));
+    F.snapshot = null; renderSnap();
+  }
+  const SNAP_LABEL = { crowdstrike_alerts: "CrowdStrike", defender_incidents: "Defender", duo_auth_denied: "Duo", abnormal_threats: "Abnormal" };
+  const snapBox = h("div", { class: "snap" });
+  function renderSnap(msg) {
+    const p = S.P[F.practice]; if (!p || !p.snapshot_source) return;
+    const label = SNAP_LABEL[p.snapshot_source];
+    if (F.snapshot) return snapBox.replaceChildren(h("span", { class: "snap-ok" }, icon("check")),
+      h("div", { class: "grow" }, h("b", { text: `${F.snapshot.label} numbers attached` }), h("div", { class: "small", text: F.snapshot.summary }),
+        h("div", { class: "faint small", text: `Pulled at ${timeOnly(F.snapshot.taken_at)}. Saved with your entry as evidence.` })),
+      h("button", { class: "btn sm", type: "button", text: "Refresh", onclick: () => pull() }));
+    const btn = h("button", { class: "btn sm primary", type: "button", onclick: () => pull() }, icon("download"), `Pull numbers from ${label}`);
+    snapBox.replaceChildren(h("div", { class: "grow" }, h("b", { text: "Add proof from the tool" }),
+      h("div", { class: "faint small", text: `Grabs the live counts from ${label} right now and attaches them to this entry. Your supervisor sees exactly what the queue looked like.` }),
+      msg ? h("div", { class: "err small", text: msg }) : null), btn);
+  }
+  async function pull() {
+    const p = S.P[F.practice]; const b = snapBox.querySelector("button");
+    await busy(b, "Pulling…", async () => { try { F.snapshot = await S.api.takeSnapshot(p.snapshot_source); renderSnap(); } catch (x) { F.snapshot = null; renderSnap(x.message); } });
   }
   function setResult(k) {
     F.result = k; outcomes.querySelectorAll(".outcome").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.k === k)));
@@ -667,6 +696,29 @@ function buildLogForm({ practice = null, onSaved }) {
     ticketLabel.lastChild.replaceWith(h("span", { class: needT ? "req" : "opt", text: needT ? "required" : "optional" }));
     issueBlock.hidden = !needT; blockBlock.hidden = k !== "incomplete";
   }
+
+  F.files = [];
+  const fileInput = h("input", { type: "file", id: "evidence", multiple: true, accept: "image/png,image/jpeg,image/webp,application/pdf,text/csv,text/plain", class: "visually-hidden" });
+  const fileList = h("div", { class: "files" });
+  const drawFiles = () => fileList.replaceChildren(...[...F.files.map((f, i) => h("div", { class: "file" },
+    f.type.startsWith("image/") ? h("img", { src: URL.createObjectURL(f), alt: "" }) : h("span", { class: "fico", text: (f.name.split(".").pop() || "file").toUpperCase().slice(0, 4) }),
+    h("div", { class: "grow" }, h("div", { class: "fname", text: f.name }), h("div", { class: "faint small", text: `${Math.max(1, Math.round(f.size / 1024))} KB` })),
+    h("button", { class: "btn quiet sm", type: "button", "aria-label": `Remove ${f.name}`, text: "Remove", onclick: () => { F.files.splice(i, 1); drawFiles(); } }))),
+    F.files.length < 5 ? h("label", { class: "drop", for: "evidence" }, icon("paperclip"), F.files.length ? "Add another file" : "Attach screenshots or exports", h("span", { class: "faint small", text: "PNG, JPG, PDF, CSV · up to 10 MB each · 5 max" })) : null].filter(Boolean));
+  fileInput.addEventListener("change", () => {
+    for (const f of fileInput.files) {
+      if (F.files.length >= 5) { toast("You can attach up to 5 files."); break; }
+      if (f.size > 10 * 1024 * 1024) { toast(`${f.name} is over 10 MB.`); continue; }
+      F.files.push(f);
+    }
+    fileInput.value = ""; drawFiles();
+  });
+  drawFiles();
+  const guidance = h("p", { class: "guidance" }, icon("lock"), S.settings.notes_guidance || "Don't paste passwords, MFA codes, student records (FERPA), HR or medical details.");
+  const leak = h("p", { class: "err small", hidden: true });
+  const sensitive = [[/\b\d{3}-\d{2}-\d{4}\b/, "a Social Security number"], [/\bpass(word|wd)?\s*[:=]\s*\S+/i, "a password"], [/\b(?:\d[ -]?){15,16}\b/, "a card number"], [/\b(dob|date of birth)\b/i, "a date of birth"]];
+  const checkLeak = () => { const hit = sensitive.find(([re]) => re.test(details.value + " " + action.value)); leak.hidden = !hit; if (hit) leak.textContent = `This looks like it contains ${hit[1]}. Remove it and describe it instead.`; };
+  details.addEventListener("input", checkLeak); action.addEventListener("input", checkLeak);
 
   const form = h("form", { class: "log-form", novalidate: true, onsubmit: async e => {
     e.preventDefault(); err.textContent = ""; form.querySelectorAll(".invalid").forEach(x => x.classList.remove("invalid"));
@@ -689,13 +741,15 @@ function buildLogForm({ practice = null, onSaved }) {
     const num = el => el.value === "" ? null : Math.round(Number(el.value));
     if (items.value !== "" && !(num(items) >= 0)) return bad(items, "Items reviewed must be a number.");
     if (minutes.value !== "" && !(num(minutes) >= 1 && num(minutes) <= 1440)) return bad(minutes, "Time spent must be between 1 and 1440 minutes.");
-    const row = { practice_id: F.practice, result: F.result, performed_at: new Date(performed).toISOString(), details: d,
+    checkLeak(); if (!leak.hidden) return bad(details, leak.textContent);
+    const row = { practice_id: F.practice, result: F.result, performed_at: new Date(performed).toISOString(), details: d, ...(F.snapshot ? { snapshot_id: F.snapshot.id } : {}),
       items_reviewed: num(items), duration_min: num(minutes), ticket: ticket.value.trim() || null,
       affected: needT ? affected.value.trim() || null : null, action_taken: needT ? action.value.trim() || null : null,
       blocker: F.result === "incomplete" ? blocker.value.trim() : null, user_agent: navigator.userAgent.slice(0, 300) };
     const btn = form.querySelector("[type=submit]");
     await busy(btn, "Saving…", async () => {
       try {
+        if (F.files.length) { btn.textContent = `Uploading ${plural(F.files.length, "file")}…`; row.attachments = []; for (const f of F.files) row.attachments.push(await S.api.uploadEvidence(f)); btn.textContent = "Saving…"; }
         const saved = await S.api.addLog(row);
         S.mine.unshift(saved); if (S.team) S.team.unshift(saved);
         onSaved(saved);
@@ -708,12 +762,14 @@ function buildLogForm({ practice = null, onSaved }) {
     h("div", { class: "form-block" }, h("div", { class: "bh" }, h("span", { class: "n", text: "02" }), h("h2", { text: "How did it go?" })), outcomes, issueBlock, blockBlock),
     h("div", { class: "form-block" }, h("div", { class: "bh" }, h("span", { class: "n", text: "03" }), h("h2", { text: "What happened?" })),
       h("div", { class: "field" }, h("label", { for: "details" }, "What did you do and find?", h("span", { class: "req", text: "required" })), details,
-        h("div", { style: "display:flex;justify-content:space-between;gap:12px" }, h("span", { class: "help", text: "Counts, hostnames, usernames, what you closed and why. Someone reading this later should understand exactly what you did." }), counter)),
+        h("div", { style: "display:flex;justify-content:space-between;gap:12px" }, h("span", { class: "help", text: "Counts, hostnames, usernames, what you closed and why. Someone reading this later should understand exactly what you did." }), counter), guidance, leak),
       h("div", { class: "grid-3" },
         h("div", { class: "field" }, ticketLabel, ticket),
         h("div", { class: "field" }, h("label", { for: "items" }, "Items reviewed", h("span", { class: "opt", text: "optional" })), items),
         h("div", { class: "field" }, h("label", { for: "minutes" }, "Time spent (min)", h("span", { class: "opt", text: "optional" })), minutes)),
       h("div", { class: "field" }, h("span", { class: "flabel", text: "When did you do it?" }), h("div", { style: "display:flex;gap:10px;flex-wrap:wrap;align-items:center" }, whenSeg, doneAt))),
+    h("div", { class: "form-block" }, h("div", { class: "bh" }, h("span", { class: "n", text: "04" }), h("h2", { text: "Evidence" }), h("span", { class: "opt", text: "optional" })),
+      fileInput, fileList),
     h("div", { class: "form-foot" }, h("span", { class: "help", text: `Logging as ${S.me.full_name}. The save time comes from the server.` }),
       h("div", { style: "display:flex;gap:12px;align-items:center;flex-wrap:wrap" }, err, h("button", { class: "btn primary", type: "submit", text: "Save log entry" }))));
 
@@ -789,6 +845,25 @@ function openLog(l) {
     review = h("section", { style: "display:flex;flex-direction:column;gap:8px" }, h("h3", { text: "Supervisor review" }),
       h("div", {}, outcomeTag(rv.outcome), h("span", { class: "faint small", text: `  ${when(rv.reviewed_at)}` })), rv.note ? h("div", { class: "quote", text: rv.note }) : null);
   }
+  const evidence = (l.snapshot_id || (l.attachments || []).length) ? h("section", { class: "evidence" }, h("h3", { text: "Evidence" }), h("div", { class: "faint small", text: "Loading…" })) : null;
+  if (evidence) (async () => {
+    const parts = [];
+    if (l.snapshot_id) {
+      const [sn] = await S.api.snapshots([l.snapshot_id]).catch(() => []);
+      parts.push(sn ? h("div", { class: "snap done" }, h("span", { class: "snap-ok" }, icon("check")), h("div", { class: "grow" },
+        h("b", { text: "Numbers pulled from the tool" }), h("div", { class: "small", text: sn.metrics.summary || JSON.stringify(sn.metrics) }),
+        h("div", { class: "faint small", text: `Pulled by the server at ${full(sn.taken_at)}, ${Math.max(0, Math.round((t(l.created_at) - t(sn.taken_at)) / 60000))} min before the entry was saved.` })))
+        : h("p", { class: "faint small", text: "A tool snapshot was attached but couldn't be loaded." }));
+    }
+    const atts = l.attachments || [];
+    if (atts.length) {
+      const urls = await Promise.all(atts.map(a => S.api.evidenceUrl(a).catch(() => null)));
+      parts.push(h("div", { class: "thumbs" }, atts.map((a, i) => { const name = a.split("/").pop(); const img = /\.(png|jpe?g|webp)$/i.test(name) || urls[i]?.startsWith("blob:");
+        return urls[i] ? h("a", { class: "thumb", href: urls[i], target: "_blank", rel: "noopener" }, img ? h("img", { src: urls[i], alt: name }) : h("span", { class: "fico", text: name.split(".").pop().toUpperCase().slice(0, 4) }), h("span", { class: "small", text: name.length > 22 ? name.slice(0, 10) + "…" + name.slice(-9) : name }))
+          : h("span", { class: "faint small", text: `${name} (couldn't load)` }); })));
+    }
+    evidence.replaceChildren(h("h3", { text: "Evidence" }), ...parts);
+  })();
   const drawer = h("aside", { class: "drawer", role: "dialog", "aria-label": "Log entry" },
     h("div", { class: "drawer-head" }, h("div", { style: "display:flex;flex-direction:column;gap:6px;min-width:0" },
       h("div", { style: "display:flex;gap:8px;align-items:center" }, h("span", { class: "mono faint", text: l.ref }), resultTag(l.result)), h("h2", { text: p.name || l.practice_id })),
@@ -797,7 +872,7 @@ function openLog(l) {
       h("section", { style: "display:flex;flex-direction:column;gap:8px" }, h("h3", { text: "What they did and found" }), h("div", { class: "quote", text: l.details })),
       l.action_taken ? h("section", { style: "display:flex;flex-direction:column;gap:8px" }, h("h3", { text: "Action taken" }), h("div", { class: "quote", text: l.action_taken })) : null,
       l.blocker ? h("section", { style: "display:flex;flex-direction:column;gap:8px" }, h("h3", { text: "What stopped them" }), h("div", { class: "quote", text: l.blocker })) : null,
-      review));
+      evidence, review));
   document.body.append(scrim, drawer); document.addEventListener("keydown", esc);
   drawer.querySelector(".btn").focus();
 }
@@ -886,6 +961,7 @@ async function supHome() {
             h("div", { class: "grow" }, h("div", { text: (S.P[l.practice_id] || {}).name }), h("div", { class: "faint small", text: `${nameOf(l.user_id)} · ${when(l.performed_at)}` })),
             resultTag(l.result))) : h("div", { class: "empty" }, h("b", { text: "No checks logged yet" }), "Entries appear here as soon as your team logs them.")))),
       h("div", { style: "display:flex;flex-direction:column;gap:24px;min-width:0" },
+        S.handoffs[0] ? h("section", {}, h("div", { class: "section-head" }, h("h2", { text: "Latest shift handoff" }), h("a", { class: "small", href: "#/team", onclick: () => { S.teamView = "shifts"; }, text: "Shifts" })), handoffCard(S.handoffs[0], { compact: false })) : null,
         h("section", {}, h("div", { class: "section-head" }, h("h2", { text: "Needs your attention" }), h("span", { class: "small faint", text: `${attention.length} item${attention.length === 1 ? "" : "s"}` })),
           h("div", { class: "panel list" }, attention.length ? attention : h("div", { class: "empty" }, h("b", { text: "All caught up" }), "No escalations, approvals or overdue critical checks."))),
         h("section", {}, h("div", { class: "section-head" }, h("h2", { text: "Team, last 30 days" }), h("a", { class: "small", href: "#/team", text: "Manage people" })),
@@ -927,7 +1003,8 @@ async function teamActivity() {
       return h("tr", { class: "click", onclick: () => openLog(l) },
         h("td", { class: "nowrap num", text: when(l.performed_at) }), h("td", { class: "nowrap", text: nameOf(l.user_id) }),
         h("td", {}, h("div", { text: p.name }), h("div", { class: "sub", text: p.tool })), h("td", {}, resultTag(l.result)),
-        h("td", { class: "clip" }, h("div", { text: l.details })), h("td", { class: "mono nowrap", text: l.ticket || "—" }),
+        h("td", { class: "clip" }, h("div", { text: l.details }), (l.snapshot_id || (l.attachments || []).length) ? h("span", { class: "evi", title: "Has evidence" }, icon("paperclip"), [l.snapshot_id ? "tool numbers" : null, (l.attachments || []).length ? plural(l.attachments.length, "file") : null].filter(Boolean).join(" · ")) : null),
+        h("td", { class: "mono nowrap", text: l.ticket || "—" }),
         h("td", {}, rv ? outcomeTag(rv.outcome) : isOpenEsc(l) ? h("span", { class: "tag bad" }, h("i"), "Not reviewed") : null,
           fl.map(x => h("div", { class: "sub", style: "color:var(--orange)", text: x }))));
     }) : [h("tr", {}, h("td", { colspan: "7" }, h("div", { class: "empty" }, h("b", { text: S.team.length ? "No entries match these filters" : "No checks logged yet" }),
@@ -963,7 +1040,8 @@ async function coverageView() {
   const draw = () => {
     const rows = all.filter(x => (!f.tool || x.p.tool === f.tool) && (!f.status || x.s.label === f.status)).sort((a, b) => a.s.rank - b.s.rank || PRIOS.indexOf(a.p.priority) - PRIOS.indexOf(b.p.priority));
     tbody.replaceChildren(...rows.map(({ p, l, s, n }) => h("tr", { style: p.active ? null : "opacity:.55" },
-      h("td", {}, h("div", { text: p.name }), h("div", { class: "sub", text: p.category })), h("td", { class: "nowrap", text: p.tool }), h("td", { class: "nowrap", text: p.frequency }),
+      h("td", {}, h("div", { text: p.name }), h("div", { class: "sub", text: p.category })), h("td", { class: "nowrap", text: p.tool }),
+      h("td", { class: "nowrap" }, ownerLabel(p) ? ownerLabel(p) : h("span", { class: "faint", text: "No owner" })), h("td", { class: "nowrap", text: p.frequency }),
       h("td", {}, h("span", { class: `prio ${p.priority}`, text: p.priority })),
       h("td", { class: "nowrap" }, l ? [h("div", { text: rel(l.performed_at) }), h("div", { class: "sub", text: nameOf(l.user_id) })] : h("span", { class: "faint", text: "Never" })),
       h("td", { class: "num", text: n }), h("td", {}, h("span", { class: `tag ${s.cls}` }, h("i"), s.label)))));
@@ -978,7 +1056,7 @@ async function coverageView() {
     h("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px" }, ["Never done", "Overdue", "On track", "Not used yet", "As needed", "Turned off"].filter(k => tally[k]).map(k => {
       const cls = { "Never done": "bad", Overdue: "bad", "On track": "ok" }[k] || "line"; return h("span", { class: `tag ${cls}` }, h("i"), `${tally[k]} ${k.toLowerCase()}`); })),
     h("div", { class: "filters" }, toolSel, stSel),
-    h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["Check", "Tool", "Frequency", "Priority", "Last done", "30d", "Status"].map(x => h("th", { text: x })))), tbody)),
+    h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["Check", "Tool", "Owner", "Frequency", "Priority", "Last done", "30d", "Status"].map(x => h("th", { text: x })))), tbody)),
     h("p", { class: "small faint", style: "margin-top:10px", text: "Daily and continuous checks are overdue after a missed weekday. Weekly after 7 days, monthly after 31, quarterly after 92, annually after 366. Change frequencies on the Checklist page." }));
 }
 
@@ -1075,11 +1153,12 @@ async function checklistView() {
   const quickSel = (p, key, opts) => { const s = h("select", { "aria-label": key, style: "height:30px;font-size:13px;width:auto" }, opts.map(x => h("option", { value: x, text: x }))); s.value = p[key];
     s.addEventListener("change", async () => { try { await S.api.savePractice(p.id, { [key]: s.value }); p[key] = s.value; toast("Saved"); } catch (x) { s.value = p[key]; toast(x.message); } }); return s; };
   return h("div", {},
-    pageHead("Checklist", "The checks analysts can log. Turn off checks you don't do (for example, tools you don't have a license for).",
+    pageHead("Checklist", "Assign each check to a person or a shift, and turn off checks you don't do.",
       h("button", { class: "btn primary", type: "button", text: "Add a check", onclick: () => editPractice(null) })),
-    h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["On", "Check", "Tool", "Frequency", "Priority", ""].map(x => h("th", { text: x })))),
+    h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["On", "Check", "Tool", "Owner", "Frequency", "Priority", ""].map(x => h("th", { text: x })))),
       h("tbody", {}, S.practices.map(p => h("tr", {}, h("td", {}, toggle(p)), h("td", {}, h("div", { text: p.name }), h("div", { class: "sub", text: p.category })),
-        h("td", { class: "nowrap", text: p.tool }), h("td", {}, quickSel(p, "frequency", FREQS)), h("td", {}, quickSel(p, "priority", PRIOS)),
+        h("td", { class: "nowrap" }, p.tool, p.snapshot_source ? h("div", { class: "sub", title: "Analysts can pull live numbers from this tool when they log this check" }, "Live numbers") : null),
+        h("td", {}, ownerSelect(p)), h("td", {}, quickSel(p, "frequency", FREQS)), h("td", {}, quickSel(p, "priority", PRIOS)),
         h("td", {}, h("button", { class: "btn sm quiet", type: "button", text: "Edit", onclick: () => editPractice(p) }))))))));
 }
 
@@ -1110,38 +1189,6 @@ const strip = (node, extraSel) => { const head = node.querySelector(".page-head"
 
 PAGES.home = async () => isSup() ? supHome() : analystHome();
 
-/* analyst home: what's due for me, grouped the way a shift works */
-function analystHome() {
-  const now = Date.now(), first = S.me.full_name.split(" ")[0];
-  const lastMine = {}; for (const l of S.mine) if (!lastMine[l.practice_id]) lastMine[l.practice_id] = l;
-  const today = S.mine.filter(l => dayKey(l.performed_at) === dayKey(now));
-  const status = p => { const l = lastMine[p.id]; if (l && dayKey(l.performed_at) === dayKey(now)) return { t: "Done today", c: "ok", r: 3 };
-    const s = coverageStatus(p, l && l.performed_at); return s.label === "On track" ? { t: "Done", c: "ok", r: 2 } : s.label === "Never done" ? { t: "Not done yet", c: "line", r: 1 } : s.label === "Overdue" ? { t: "Due", c: "warn", r: 0 } : { t: "Any time", c: "line", r: 4 }; };
-  const groups = [["Every shift", ["Continuous", "Daily"]], ["This week", ["Weekly"]], ["This month or later", ["Monthly", "Quarterly", "Annually"]], ["When something happens", ["As Needed"]]];
-  const row = p => { const st = status(p), l = lastMine[p.id];
-    return h("button", { type: "button", class: "row click due-row", onclick: () => openLogSheet(p.id) },
-      h("span", { class: "tile sm", style: `background:${toolColor(p.tool)}` }, toolGlyph(p.tool)),
-      h("div", { class: "grow" }, h("div", { text: p.name }), h("div", { class: "faint small" }, h("span", { text: p.tool }), h("span", { class: `prio ${p.priority}`, text: ` · ${p.priority}` }),
-        h("span", { text: l ? ` · you did this ${/ago|now/i.test(rel(l.performed_at)) ? rel(l.performed_at).toLowerCase() : "on " + rel(l.performed_at)}` : "" }))),
-      h("span", { class: `tag ${st.c}`, text: st.t }), icon("arrow")); };
-  const sections = groups.map(([title, freqs]) => {
-    const ps = S.practices.filter(p => p.active && freqs.includes(p.frequency)).sort((a, b) => status(a).r - status(b).r || PRIOS.indexOf(a.priority) - PRIOS.indexOf(b.priority));
-    if (!ps.length) return null;
-    const due = ps.filter(p => status(p).r <= 1).length;
-    return h("section", { class: "section" }, h("div", { class: "section-head" }, h("h2", { text: title }), h("span", { class: "faint small", text: due ? `${due} to do` : "All done" })),
-      h("div", { class: "panel list" }, ps.map(row)));
-  });
-  const recent = S.mine.slice(0, 5);
-  return h("div", {},
-    pageHead(`${greeting()}, ${first}`, today.length ? `You've logged ${plural(today.length, "check")} today. Pick a check below to log it.` : "Nothing logged yet today. Pick a check below to log it.",
-      h("button", { class: "btn primary", type: "button", onclick: () => openLogSheet() }, icon("plus"), "New log entry")),
-    h("div", { class: "home-grid" },
-      h("div", {}, ...sections),
-      h("aside", { class: "section" }, h("div", { class: "section-head" }, h("h2", { text: "Your latest entries" }), h("a", { class: "small", href: "#/activity", text: "My log" })),
-        h("div", { class: "panel list" }, recent.length ? recent.map(l => h("div", { class: "row click", onclick: () => openLog(l) },
-          h("div", { class: "grow" }, h("div", { text: (S.P[l.practice_id] || {}).name }), h("div", { class: "faint small", text: when(l.performed_at) })),
-          S.reviews[l.id] ? outcomeTag(S.reviews[l.id].outcome) : resultTag(l.result))) : h("div", { class: "empty" }, h("b", { text: "No entries yet" }), "Your log entries show up here.")))));
-}
 const TOOL_COLORS = { CrowdStrike: "#e0333b", "Microsoft Defender": "#0a84ff", Splunk: "#65a637", Abnormal: "#5e5ce6", Duo: "#30b158", "Cross-Tool": "#8e8e93" };
 const toolColor = t => TOOL_COLORS[t] || "#8e8e93";
 const toolGlyph = t => h("b", { text: (t === "Cross-Tool" ? "X" : t === "Microsoft Defender" ? "MD" : t.slice(0, 2)).toUpperCase().slice(0, 2) });
@@ -1167,16 +1214,253 @@ PAGES.checks = async () => {
     h("div", { class: "view-bar" }, segmented([["coverage", "Coverage"], ["edit", "Edit checklist"]], v, k => { S.checksView = k; route(); })), node);
 };
 
-/* team: members, approvals, removed people, audit trail */
+/* =====================================================================
+   shifts, ownership, handoffs
+   ===================================================================== */
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const hhmm = tm => { const [h, m] = String(tm).split(":").map(Number); const d = new Date(); d.setHours(h, m, 0, 0); return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
+const dayList = days => { const d = [...days].sort(); const s = d.join(","); return s === "1,2,3,4,5" ? "Mon–Fri" : s === "0,6" ? "Weekends" : s === "0,1,2,3,4,5,6" ? "Every day" : d.map(x => DAYS[x]).join(", "); };
+const shiftWhen = sh => `${dayList(sh.days)} · ${hhmm(sh.starts)}–${hhmm(sh.ends)}`;
+const shiftById = id => S.shifts.find(x => x.id === id);
+const myShifts = () => S.shifts.filter(x => x.active && x.members.includes(S.me.id));
+function onNow(sh, d = new Date()) {
+  const mins = d.getHours() * 60 + d.getMinutes(), toM = tm => { const [h, m] = String(tm).split(":").map(Number); return h * 60 + m; };
+  return sh.active && sh.days.includes(d.getDay()) && mins >= toM(sh.starts) && mins < toM(sh.ends);
+}
+const isMine = p => p.owner_id === S.me.id || (p.owner_shift_id && myShifts().some(x => x.id === p.owner_shift_id));
+const ownerLabel = p => p.owner_id ? nameOf(p.owner_id) : p.owner_shift_id && shiftById(p.owner_shift_id) ? shiftById(p.owner_shift_id).name : "";
+
+function handoffCard(hf, { compact = false } = {}) {
+  const sh = hf.shift_id && shiftById(hf.shift_id);
+  const block = (label, text, cls) => text ? h("div", { class: `ho-block ${cls || ""}` }, h("div", { class: "ho-label", text: label }), h("p", { text })) : null;
+  return h("article", { class: "handoff" },
+    h("header", {}, avatar(hf.user_id, nameOf(hf.user_id)), h("div", { class: "grow" }, h("b", { text: nameOf(hf.user_id) }),
+      h("div", { class: "faint small", text: `${sh ? sh.name + " · " : ""}handed off ${rel(hf.created_at).toLowerCase()}` }))),
+    block("What happened", hf.summary), block("Still open", hf.open_items, "open"), compact ? null : block("Watch for", hf.watch_for, "watch"));
+}
+
+function openHandoffSheet() {
+  document.querySelectorAll(".scrim, .sheet").forEach(e => e.remove());
+  const close = () => { scrim.remove(); sheet.remove(); };
+  const scrim = h("div", { class: "scrim", onclick: close });
+  const mine = myShifts(), cur = mine.find(x => onNow(x));
+  const since = Date.now() - 12 * 36e5, shiftLogs = S.mine.filter(l => t(l.performed_at) > since);
+  const shiftSel = h("select", { id: "hoShift" }, h("option", { value: "", text: "Not a scheduled shift" }), S.shifts.filter(x => x.active).map(x => h("option", { value: x.id, text: `${x.name} (${shiftWhen(x)})` })));
+  shiftSel.value = cur ? cur.id : (mine[0] ? mine[0].id : "");
+  const summary = h("textarea", { id: "hoSummary", rows: "4", maxlength: "4000", placeholder: "e.g. Falcon queue clean at 11:55. Purged 2 user-reported phish in Defender (INC0041092). Duo quiet." });
+  const open = h("textarea", { id: "hoOpen", rows: "3", maxlength: "4000", placeholder: "e.g. FIN-LT022 still isolated, waiting on desktop support to re-image." });
+  const watch = h("textarea", { id: "hoWatch", rows: "2", maxlength: "2000", placeholder: "e.g. More DocuSign lures from docu-sign-secure.co variants." });
+  const err = h("p", { class: "err" });
+  const save = h("button", { class: "btn primary", type: "submit", text: "Hand off shift" });
+  const form = h("form", { class: "log-form", onsubmit: async e => { e.preventDefault(); err.textContent = "";
+    if (summary.value.trim().length < 10) { summary.classList.add("invalid"); summary.focus(); return err.textContent = "Write a short summary of your shift (at least 10 characters)."; }
+    await busy(save, "Saving…", async () => {
+      try { await S.api.addHandoff({ shift_id: shiftSel.value ? Number(shiftSel.value) : null, summary: summary.value.trim(), open_items: open.value.trim() || null, watch_for: watch.value.trim() || null });
+        toast("Shift handed off. The next person will see your note."); close(); S.handoffs = await S.api.handoffs(); route(); }
+      catch (x) { err.textContent = x.message; } }); } },
+    h("div", { class: "form-block" },
+      h("div", { class: "notice" }, shiftLogs.length ? `You logged ${plural(shiftLogs.length, "check")} in the last 12 hours: ${[...new Set(shiftLogs.map(l => (S.P[l.practice_id] || {}).name))].slice(0, 4).join(", ")}${shiftLogs.length > 4 ? "…" : ""}.` : "You haven't logged any checks in the last 12 hours."),
+      h("div", { class: "field" }, h("label", { for: "hoShift", text: "Shift" }), shiftSel),
+      h("div", { class: "field" }, h("label", { for: "hoSummary" }, "What happened this shift?", h("span", { class: "req", text: "required" })), summary),
+      h("div", { class: "field" }, h("label", { for: "hoOpen" }, "What's still open?", h("span", { class: "opt", text: "optional" })), open),
+      h("div", { class: "field" }, h("label", { for: "hoWatch" }, "What should the next person watch for?", h("span", { class: "opt", text: "optional" })), watch),
+      h("p", { class: "guidance" }, icon("lock"), S.settings.notes_guidance || "")),
+    h("div", { class: "form-foot" }, h("span", { class: "help", text: "Handoffs are shared with the whole team and can't be edited after saving." }), h("div", { style: "display:flex;gap:12px;align-items:center" }, err, save)));
+  const sheet = h("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-label": "Hand off shift" },
+    h("div", { class: "sheet-head" }, h("h2", { text: "Hand off your shift" }), h("span", { class: "faint small", text: S.me.full_name }), h("button", { class: "btn sm", type: "button", text: "Cancel", onclick: close })),
+    h("div", { class: "sheet-body" }, form));
+  document.body.append(scrim, sheet); summary.focus();
+}
+
+/* analyst home: my shift, my assigned checks, last handoff */
+function analystHome() {
+  const now = Date.now(), first = S.me.full_name.split(" ")[0];
+  const lastMine = {}; for (const l of S.mine) if (!lastMine[l.practice_id]) lastMine[l.practice_id] = l;
+  const today = S.mine.filter(l => dayKey(l.performed_at) === dayKey(now));
+  const status = p => { const l = lastMine[p.id]; if (l && dayKey(l.performed_at) === dayKey(now)) return { t: "Done today", c: "ok", r: 3 };
+    const s = coverageStatus(p, l && l.performed_at); return s.label === "On track" ? { t: "Done", c: "ok", r: 2 } : s.label === "Never done" ? { t: "Not done yet", c: "line", r: 1 } : s.label === "Overdue" ? { t: "Due", c: "warn", r: 0 } : { t: "Any time", c: "line", r: 4 }; };
+  const row = p => { const st = status(p), l = lastMine[p.id];
+    return h("button", { type: "button", class: "row click due-row", onclick: () => openLogSheet(p.id) },
+      h("span", { class: "tile sm", style: `background:${toolColor(p.tool)}` }, toolGlyph(p.tool)),
+      h("div", { class: "grow" }, h("div", { text: p.name }), h("div", { class: "faint small" }, h("span", { text: `${p.tool} · ${p.frequency}` }), h("span", { class: `prio ${p.priority}`, text: ` · ${p.priority}` }),
+        h("span", { text: l ? ` · you did this ${/ago|now/i.test(rel(l.performed_at)) ? rel(l.performed_at).toLowerCase() : "on " + rel(l.performed_at)}` : "" }))),
+      h("span", { class: `tag ${st.c}`, text: st.t }), icon("arrow")); };
+  const sortP = ps => ps.sort((a, b) => status(a).r - status(b).r || PRIOS.indexOf(a.priority) - PRIOS.indexOf(b.priority));
+  const active = S.practices.filter(p => p.active);
+  const mineP = sortP(active.filter(isMine));
+  const rest = active.filter(p => !isMine(p));
+  const groups = [["Every shift", ["Continuous", "Daily"]], ["This week", ["Weekly"]], ["This month or later", ["Monthly", "Quarterly", "Annually"]], ["When something happens", ["As Needed"]]];
+  const cur = myShifts().find(x => onNow(x));
+  const lastHo = S.handoffs.find(x => x.user_id !== S.me.id && now - t(x.created_at) < 36 * 36e5);
+  const toDo = mineP.filter(p => status(p).r <= 1).length;
+  const sub = [cur ? `You're on ${cur.name} until ${hhmm(cur.ends)}.` : myShifts().length ? `Your shifts: ${myShifts().map(x => `${x.name} (${shiftWhen(x)})`).join("; ")}.` : "You're not on a scheduled shift.",
+    today.length ? `${plural(today.length, "check")} logged today.` : "Nothing logged yet today."].join(" ");
+  const others = groups.map(([title, freqs]) => { const ps = sortP(rest.filter(p => freqs.includes(p.frequency))); if (!ps.length) return null;
+    return h("div", { class: "subgroup" }, h("div", { class: "label", text: title }), h("div", { class: "panel list" }, ps.map(row))); });
+  const recent = S.mine.slice(0, 5);
+  return h("div", {},
+    pageHead(`${greeting()}, ${first}`, sub,
+      h("button", { class: "btn", type: "button", onclick: () => openHandoffSheet() }, icon("handoff"), "Hand off shift"),
+      h("button", { class: "btn primary", type: "button", onclick: () => openLogSheet() }, icon("plus"), "New log entry")),
+    h("div", { class: "home-grid" },
+      h("div", {},
+        lastHo ? h("section", { class: "section", style: "margin-top:0" }, h("div", { class: "section-head" }, h("h2", { text: "From the last shift" })), handoffCard(lastHo)) : null,
+        h("section", { class: "section" }, h("div", { class: "section-head" }, h("h2", { text: "Assigned to you" }), h("span", { class: "faint small", text: mineP.length ? (toDo ? `${toDo} to do` : "All done") : "" })),
+          mineP.length ? h("div", { class: "panel list" }, mineP.map(row)) : h("div", { class: "panel empty" }, h("b", { text: "Nothing assigned to you yet" }), "Your supervisor assigns checks to people and shifts. Until then, pick from the full checklist below.")),
+        h("details", { class: "section more", open: mineP.length ? null : true }, h("summary", {}, h("h2", { text: "Rest of the checklist" }), h("span", { class: "faint small", text: `${rest.length} checks` })), ...others)),
+      h("aside", { class: "section" }, h("div", { class: "section-head" }, h("h2", { text: "Your latest entries" }), h("a", { class: "small", href: "#/activity", text: "My log" })),
+        h("div", { class: "panel list" }, recent.length ? recent.map(l => h("div", { class: "row click", onclick: () => openLog(l) },
+          h("div", { class: "grow" }, h("div", { text: (S.P[l.practice_id] || {}).name }), h("div", { class: "faint small", text: when(l.performed_at) })),
+          S.reviews[l.id] ? outcomeTag(S.reviews[l.id].outcome) : resultTag(l.result))) : h("div", { class: "empty" }, h("b", { text: "No entries yet" }), "Your log entries show up here.")))));
+}
+
+/* team > shifts */
+function editShift(sh) {
+  const isNew = !sh; sh = sh || { name: "", days: [1, 2, 3, 4, 5], starts: "09:00:00", ends: "13:00:00", members: [] };
+  const close = () => { scrim.remove(); drawer.remove(); };
+  const scrim = h("div", { class: "scrim", onclick: close });
+  const days = new Set(sh.days.map(Number)), members = new Set(sh.members);
+  const name = h("input", { type: "text", id: "shName", value: sh.name, maxlength: "60", placeholder: "e.g. Weekday morning" });
+  const starts = h("input", { type: "time", id: "shStart", value: String(sh.starts).slice(0, 5) }), ends = h("input", { type: "time", id: "shEnd", value: String(sh.ends).slice(0, 5) });
+  const dayBtns = h("div", { class: "seg" }, [1, 2, 3, 4, 5, 6, 0].map(d => h("button", { type: "button", "aria-pressed": String(days.has(d)), text: DAYS[d],
+    onclick: e => { days.has(d) ? days.delete(d) : days.add(d); e.currentTarget.setAttribute("aria-pressed", String(days.has(d))); } })));
+  const people = S.people.filter(p => p.status === "active");
+  const memberList = h("div", { class: "checks" }, people.map(p => { const cb = h("input", { type: "checkbox", id: `m-${p.id}` }); cb.checked = members.has(p.id);
+    cb.addEventListener("change", () => cb.checked ? members.add(p.id) : members.delete(p.id));
+    return h("label", { class: "check-row", for: `m-${p.id}` }, cb, avatar(p.id, p.full_name), h("span", { text: p.full_name }), h("span", { class: "faint small", text: p.role === "supervisor" ? "Supervisor" : "" })); }));
+  const err = h("p", { class: "err" });
+  const save = h("button", { class: "btn primary", type: "button", text: isNew ? "Add shift" : "Save shift", onclick: () => busy(save, "Saving…", async () => {
+    err.textContent = "";
+    if (!name.value.trim()) return err.textContent = "Give the shift a name.";
+    if (!days.size) return err.textContent = "Pick at least one day.";
+    if (!starts.value || !ends.value || starts.value >= ends.value) return err.textContent = "The end time has to be after the start time.";
+    try { await S.api.saveShift({ ...(isNew ? {} : { id: sh.id }), name: name.value.trim(), days: [...days].sort(), starts: starts.value, ends: ends.value }, [...members]);
+      S.shifts = await S.api.shifts(); toast(isNew ? "Shift added" : "Shift saved"); close(); route(); } catch (x) { err.textContent = x.message; } }) });
+  const del = isNew ? null : h("button", { class: "btn danger", type: "button", text: "Delete shift", onclick: async () => {
+    if (!(await confirmBox({ title: `Delete ${sh.name}?`, body: "Checks owned by this shift will have no owner. Past handoffs keep their text.", ok: "Delete", danger: true }))) return;
+    try { await S.api.deleteShift(sh.id); S.shifts = await S.api.shifts(); S.practices = await S.api.practices(); S.P = Object.fromEntries(S.practices.map(p => [p.id, p])); toast("Shift deleted"); close(); route(); } catch (x) { toast(x.message); } } });
+  const drawer = h("aside", { class: "drawer", role: "dialog" },
+    h("div", { class: "drawer-head" }, h("h2", { text: isNew ? "Add a shift" : "Edit shift" }), h("button", { class: "btn sm", type: "button", text: "Close", onclick: close })),
+    h("div", { class: "drawer-body" },
+      h("div", { class: "field" }, h("label", { for: "shName", text: "Name" }), name),
+      h("div", { class: "field" }, h("span", { class: "flabel", text: "Days" }), dayBtns),
+      h("div", { class: "grid-2" }, h("div", { class: "field" }, h("label", { for: "shStart", text: "Starts" }), starts), h("div", { class: "field" }, h("label", { for: "shEnd", text: "Ends" }), ends)),
+      h("div", { class: "field" }, h("span", { class: "flabel", text: "Who works this shift" }), memberList),
+      err, h("div", { style: "display:flex;gap:8px;justify-content:space-between" }, save, del)));
+  document.body.append(scrim, drawer); name.focus();
+}
+function shiftsView() {
+  const owned = id => S.practices.filter(p => p.active && p.owner_shift_id === id).length;
+  const body = S.shifts.length ? h("div", { class: "shift-grid" }, S.shifts.map(sh => h("button", { type: "button", class: "panel shift-card", onclick: () => editShift(sh) },
+      h("div", { class: "sc-top" }, h("b", { text: sh.name }), onNow(sh) ? h("span", { class: "tag ok" }, h("i"), "On now") : null),
+      h("div", { class: "faint small", text: shiftWhen(sh) }),
+      h("div", { class: "avatars" }, sh.members.length ? sh.members.map(id => h("span", { title: nameOf(id) }, avatar(id, nameOf(id)))) : h("span", { class: "faint small", text: "Nobody assigned yet" })),
+      h("div", { class: "small dim", text: `${plural(owned(sh.id), "check")} owned · edit in Checklist` }))))
+    : h("div", { class: "panel empty" }, h("b", { text: "No shifts yet" }), "Add your shifts, then assign checks to them on the Checklist page. Analysts see their shift's checks on their Home.");
+  return h("div", {}, pageHead("Shifts", "", h("button", { class: "btn primary", type: "button", onclick: () => editShift(null) }, icon("plus"), "Add shift")), body);
+}
+function ownerSelect(p) {
+  const s = h("select", { "aria-label": `Owner of ${p.name}`, class: "owner-select" }, h("option", { value: "", text: "No owner" }),
+    S.shifts.length ? h("optgroup", { label: "Shifts" }, S.shifts.map(x => h("option", { value: `s:${x.id}`, text: x.name }))) : null,
+    h("optgroup", { label: "People" }, S.people.filter(x => x.status === "active").map(x => h("option", { value: `u:${x.id}`, text: x.full_name }))));
+  s.value = p.owner_id ? `u:${p.owner_id}` : p.owner_shift_id ? `s:${p.owner_shift_id}` : "";
+  s.addEventListener("change", async () => {
+    const v = s.value, patch = { owner_id: v.startsWith("u:") ? v.slice(2) : null, owner_shift_id: v.startsWith("s:") ? Number(v.slice(2)) : null };
+    try { await S.api.savePractice(p.id, patch); Object.assign(p, patch); toast(v ? `${p.name} → ${ownerLabel(p)}` : "Owner removed"); } catch (x) { toast(x.message); s.value = p.owner_id ? `u:${p.owner_id}` : p.owner_shift_id ? `s:${p.owner_shift_id}` : ""; }
+  });
+  return s;
+}
+
+/* team page (now with shifts) */
 PAGES.team = async () => {
   const v = S.teamView || (S.people.some(p => p.status === "pending") ? "pending" : "active");
   const n = st => S.people.filter(p => p.status === st).length;
   let built;
   if (v === "audit") built = strip(await auditView());
+  else if (v === "shifts") built = strip(shiftsView());
   else { S.peopleTab = v; built = strip(await peopleView(), ".tabbar"); }
-  return h("div", {}, pageHead("Team", v === "audit" ? "Every access change, role change, review and checklist edit, with who did it and when." : "Approve new sign-ups, change roles and remove access. Every change is recorded.", built.actions),
-    h("div", { class: "view-bar" }, segmented([["active", "Members", n("active")], ["pending", "Waiting for approval", n("pending")], ["removed", "Removed", n("removed")], ["audit", "Audit trail"]], v, k => { S.teamView = k; route(); })),
+  const subs = { audit: "Every access change, role change, review, shift and checklist edit, with who did it and when.", shifts: "Who works when. Assign checks to a shift on the Checklist page and everyone on it sees them on their Home." };
+  return h("div", {}, pageHead("Team", subs[v] || "Approve new sign-ups, change roles and remove access. Every change is recorded.", built.actions),
+    h("div", { class: "view-bar" }, segmented([["active", "Members", n("active")], ["pending", "Waiting for approval", n("pending")], ["shifts", "Shifts", S.shifts.length], ["removed", "Removed", n("removed")], ["audit", "Audit trail"]], v, k => { S.teamView = k; route(); })),
     built.node);
+};
+
+/* =====================================================================
+   reports (supervisor)
+   ===================================================================== */
+function monthRange(key) { const [y, m] = key.split("-").map(Number); return [new Date(y, m - 1, 1), new Date(y, m, 1)]; }
+const median = a => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); const mid = Math.floor(s.length / 2); return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2; };
+const fmtMin = m => m == null ? "—" : m < 60 ? `${Math.round(m)} min` : m < 2880 ? `${(m / 60).toFixed(1)} h` : `${(m / 1440).toFixed(1)} days`;
+function weekStart(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return dayKey(x); }
+
+PAGES.reports = async () => {
+  const months = []; for (let i = 0; i < 6; i++) { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i); months.push(`${d.getFullYear()}-${pad(d.getMonth() + 1)}`); }
+  const key = S.reportMonth && months.includes(S.reportMonth) ? S.reportMonth : months[0];
+  const [from, to] = monthRange(key), end = new Date(Math.min(to, Date.now()));
+  const label = from.toLocaleDateString([], { month: "long", year: "numeric" });
+  const L = S.team.filter(l => t(l.performed_at) >= from && t(l.performed_at) < to);
+  const H = S.handoffs.filter(x => t(x.created_at) >= from && t(x.created_at) < to);
+  const esc = await S.api.escalationResponse(from.toISOString(), to.toISOString()).catch(() => []);
+  const reviewed = esc.filter(e => e.reviewed_at), med = median(reviewed.map(e => Number(e.minutes)));
+
+  // expected periods per check this month (so far)
+  const weekdays = [], weeks = new Set();
+  for (const d = new Date(from); d < end; d.setDate(d.getDate() + 1)) { const w = d.getDay(); if (w && w !== 6) weekdays.push(dayKey(d)); weeks.add(weekStart(d)); }
+  const comp = S.practices.filter(p => p.active).map(p => {
+    const ls = L.filter(l => l.practice_id === p.id);
+    let expected = null, covered = null;
+    if (p.frequency === "Daily" || p.frequency === "Continuous") { expected = weekdays.length; covered = new Set(ls.map(l => dayKey(l.performed_at)).filter(k => weekdays.includes(k))).size; }
+    else if (p.frequency === "Weekly") { expected = weeks.size; covered = new Set(ls.map(l => weekStart(l.performed_at))).size; }
+    else if (p.frequency === "Monthly") { expected = 1; covered = ls.length ? 1 : 0; }
+    return { p, n: ls.length, expected, covered, pct: expected ? covered / expected : null, owner: ownerLabel(p) };
+  });
+  const scored = comp.filter(c => c.expected);
+  const overall = scored.length ? scored.reduce((a, c) => a + c.covered, 0) / scored.reduce((a, c) => a + c.expected, 0) : null;
+  const pct = x => x == null ? "—" : `${Math.round(x * 100)}%`;
+  const bar = x => x == null ? h("span", { class: "faint", text: "Not scored" }) : h("div", { class: "meter" }, h("span", { class: "track" }, h("span", { style: `width:${Math.max(2, Math.round(x * 100))}%;background:${x >= .9 ? "var(--green)" : x >= .6 ? "var(--orange)" : "var(--red)"}` })), h("b", { text: pct(x) }));
+
+  const people = S.people.filter(p => p.status !== "pending").map(p => { const ls = L.filter(l => l.user_id === p.id);
+    return { p, n: ls.length, esc: ls.filter(l => l.result === "escalated").length, issues: ls.filter(l => l.result === "handled").length,
+      flagged: ls.filter(l => flagsOf(l).length).length, days: new Set(ls.map(l => dayKey(l.performed_at))).size, ho: H.filter(x => x.user_id === p.id).length, ev: ls.filter(l => l.snapshot_id || (l.attachments || []).length).length }; })
+    .filter(x => x.n || x.ho).sort((a, b) => b.n - a.n);
+  const tools = [...new Set(S.practices.map(p => p.tool))].map(tl => { const ls = L.filter(l => (S.P[l.practice_id] || {}).tool === tl);
+    return { tl, n: ls.length, found: ls.filter(l => l.result === "handled" || l.result === "escalated").length, inc: ls.filter(l => l.result === "incomplete").length }; });
+  const withEvidence = L.filter(l => l.snapshot_id || (l.attachments || []).length).length;
+
+  const exportCsv = () => {
+    const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const rows = [["Month", label], [], ["Check", "Tool", "Frequency", "Priority", "Owner", "Entries", "Periods covered", "Periods expected", "Compliance"],
+      ...comp.map(c => [c.p.name, c.p.tool, c.p.frequency, c.p.priority, c.owner, c.n, c.covered ?? "", c.expected ?? "", c.pct == null ? "" : Math.round(c.pct * 100) + "%"]),
+      [], ["Analyst", "Checks", "Escalations", "Found & handled", "Flagged", "Days active", "Handoffs", "Entries with evidence"],
+      ...people.map(x => [x.p.full_name, x.n, x.esc, x.issues, x.flagged, x.days, x.ho, x.ev])];
+    download(`soc-report-${key}.csv`, rows.map(r => r.map(q).join(",")).join("\r\n")); toast("Report downloaded");
+  };
+  const stat = (v, l, s, bad) => h("div", { class: "stat" }, h("span", { class: "label", text: l }), h("span", { class: `v${bad ? " bad" : ""}`, text: v }), h("span", { class: "s", text: s }));
+  return h("div", { class: "report" },
+    pageHead(`SOC report · ${label}`, `${S.settings.org_name || "SOC"}. Generated ${full(new Date().toISOString())}${end < to ? ", month in progress" : ""}.`,
+      (() => { const s = h("select", { "aria-label": "Month", style: "width:auto" }, months.map(m => h("option", { value: m, text: monthRange(m)[0].toLocaleDateString([], { month: "long", year: "numeric" }) }))); s.value = key; s.addEventListener("change", () => { S.reportMonth = s.value; route(); }); return s; })(),
+      h("button", { class: "btn", type: "button", onclick: exportCsv, text: "Export CSV" }), h("button", { class: "btn primary", type: "button", onclick: () => window.print(), text: "Print / save PDF" })),
+    h("div", { class: "stats" },
+      stat(String(L.length), "Checks logged", `${new Set(L.map(l => l.user_id)).size} analysts`),
+      stat(pct(overall), "Checklist compliance", "daily, weekly & monthly checks done on time", overall != null && overall < .6),
+      stat(String(esc.length), "Escalations", `${reviewed.length} reviewed · ${esc.length - reviewed.length} not reviewed`, esc.length - reviewed.length > 0),
+      stat(fmtMin(med), "Median time to review", "from escalation to supervisor review"),
+      stat(`${L.length ? Math.round(withEvidence / L.length * 100) : 0}%`, "Entries with evidence", `${H.length} shift handoffs`)),
+    h("section", { class: "section" }, h("div", { class: "section-head" }, h("h2", { text: "Compliance by check" }), h("span", { class: "faint small", text: "Covered periods ÷ expected periods. Quarterly, annual and as-needed checks are counted, not scored." })),
+      h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["Check", "Tool", "Owner", "Frequency", "Entries", "Compliance"].map(x => h("th", { text: x })))),
+        h("tbody", {}, comp.sort((a, b) => (a.pct ?? 2) - (b.pct ?? 2) || PRIOS.indexOf(a.p.priority) - PRIOS.indexOf(b.p.priority)).map(c => h("tr", {},
+          h("td", {}, h("div", { text: c.p.name }), h("div", { class: "sub" }, h("span", { class: `prio ${c.p.priority}`, text: c.p.priority }))),
+          h("td", { class: "nowrap", text: c.p.tool }), h("td", { class: "nowrap", text: c.owner || "—" }), h("td", { class: "nowrap", text: c.p.frequency }),
+          h("td", { class: "num", text: c.n }), h("td", { style: "min-width:160px" }, bar(c.pct), c.expected ? h("div", { class: "sub", text: `${c.covered} of ${c.expected} ${c.p.frequency === "Weekly" ? "weeks" : c.p.frequency === "Monthly" ? "month" : "weekdays"}` }) : null))))))),
+    h("div", { class: "cols section" },
+      h("section", {}, h("div", { class: "section-head" }, h("h2", { text: "By analyst" })),
+        h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["Analyst", "Checks", "Days", "Esc.", "Handled", "Flagged", "Handoffs", "Evidence"].map(x => h("th", { text: x })))),
+          h("tbody", {}, people.length ? people.map(x => h("tr", {}, h("td", { class: "nowrap", text: x.p.full_name }), ...[x.n, x.days, x.esc, x.issues, x.flagged, x.ho, x.ev].map(v => h("td", { class: "num", text: v }))))
+            : h("tr", {}, h("td", { colspan: "8", class: "empty", text: "No activity this month." })))))),
+      h("section", {}, h("div", { class: "section-head" }, h("h2", { text: "By tool" })),
+        h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, ["Tool", "Checks", "Issues found", "Couldn't finish"].map(x => h("th", { text: x })))),
+          h("tbody", {}, tools.map(x => h("tr", {}, h("td", { text: x.tl }), h("td", { class: "num", text: x.n }), h("td", { class: "num", text: x.found }), h("td", { class: "num", text: x.inc })))))),
+        esc.length - reviewed.length ? h("div", { class: "notice warn", style: "margin-top:12px", text: `${esc.length - reviewed.length} escalation${esc.length - reviewed.length === 1 ? " is" : "s are"} still waiting for review. Open Activity > Needs review.` }) : null)));
 };
 
 /* =====================================================================
@@ -1186,14 +1470,30 @@ PAGES.settings = async () => {
   const org = h("input", { type: "text", id: "org", value: S.settings.org_name || "" });
   const dom = h("input", { type: "text", id: "domain", value: S.settings.allowed_email_domain || "", placeholder: "shu.edu" });
   const save = h("button", { class: "btn primary", type: "button", text: "Save settings", onclick: () => busy(save, "Saving…", async () => {
-    try { const patch = { org_name: org.value.trim() || "SOC", allowed_email_domain: dom.value.trim().replace(/^@/, "").toLowerCase() || null };
+    try { const patch = { org_name: org.value.trim() || "SOC", allowed_email_domain: dom.value.trim().replace(/^@/, "").toLowerCase() || null,
+        ...("retention_days" in S.settings ? { retention_days: Number(ret.value), notes_guidance: guide.value.trim() || S.settings.notes_guidance } : {}) };
       await S.api.saveSettings(patch); Object.assign(S.settings, patch); toast("Settings saved"); } catch (x) { toast(x.message); } }) });
+  const ret = h("select", { id: "retention" }, [[365, "1 year"], [730, "2 years"], [1095, "3 years"], [1825, "5 years"], [2555, "7 years"]].map(([v, l]) => h("option", { value: v, text: l })));
+  ret.value = String(S.settings.retention_days || 1095);
+  const guide = h("textarea", { id: "guide", rows: "3", maxlength: "500", value: S.settings.notes_guidance || "" });
+  const integ = [["Microsoft Teams alerts", "TEAMS_WEBHOOK_URL", "Escalations, new sign-ups and a weekday-morning list of overdue critical checks."],
+    ["Splunk", "SPLUNK_HEC_URL, SPLUNK_HEC_TOKEN", "Every entry, review, handoff and audit event is forwarded to Splunk."],
+    ["CrowdStrike", "CROWDSTRIKE_CLIENT_ID, CROWDSTRIKE_CLIENT_SECRET", "Live alert counts on Falcon checks (read-only Alerts scope)."],
+    ["Microsoft Defender", "MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET", "Active incident counts (Graph SecurityIncident.Read.All)."],
+    ["Duo", "DUO_API_HOST, DUO_IKEY, DUO_SKEY", "Denied and fraud authentications in the last 24 h (Admin API, read log)."],
+    ["Abnormal", "ABNORMAL_API_TOKEN", "Threats detected in the last 24 h."]];
   return h("div", {}, pageHead("Team settings", "Applies to everyone using this SOC log."),
-    h("div", { class: "panel pad", style: "max-width:560px;display:flex;flex-direction:column;gap:16px" },
+    h("div", { class: "settings-grid" },
+    h("div", { class: "panel pad", style: "display:flex;flex-direction:column;gap:16px" },
+      h("div", { class: "field" }, h("label", { for: "retention", text: "Keep log entries for" }), ret, h("p", { class: "help", text: "Older entries, handoffs and reviews are deleted automatically once a day. Export reports before they age out." })),
+      h("div", { class: "field" }, h("label", { for: "guide", text: "Reminder shown when writing notes" }), guide, h("p", { class: "help", text: "Tell analysts what must never go into a note." })),
       h("div", { class: "field" }, h("label", { for: "org", text: "Team name" }), org, h("p", { class: "help", text: "Shown on the sign-in page and at the top of the app." })),
       h("div", { class: "field" }, h("label", { for: "domain", text: "Allowed email domain for sign-up" }), dom,
         h("p", { class: "help", text: "Only emails ending in this domain can create an account. Leave it empty to allow any email (not recommended)." })),
-      h("div", {}, save)));
+      h("div", {}, save)),
+    h("div", { class: "panel pad", style: "display:flex;flex-direction:column;gap:12px" }, h("h2", { text: "Integrations" }),
+      h("p", { class: "dim small", text: "Keys never go in this website. Add them in Supabase under Edge Functions > Secrets, then follow the README. Each one switches on by itself once its keys are there." }),
+      h("div", { class: "integ" }, integ.map(([n, k, d]) => h("div", {}, h("b", { text: n }), h("div", { class: "small dim", text: d }), h("div", { class: "mono faint small", text: k })))))));
 };
 PAGES.account = async () => {
   const name = h("input", { type: "text", id: "myName", value: S.me.full_name });

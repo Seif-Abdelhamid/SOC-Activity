@@ -107,6 +107,58 @@ Because the app is single-tenant, only SHU accounts can use it, and SHU's Condit
 
 Google accounts that aren't on the allowed email domain are still refused at sign-up by the database.
 
+## Shifts, handoffs, alerts, Splunk and tool evidence (v2)
+
+### 1. Upgrade the database (2 minutes)
+Supabase > **SQL Editor** > New query > paste all of `supabase/upgrade_v2.sql` > **Run**. It's safe to run again.
+This adds shifts, check owners, handoffs, evidence storage, tool snapshots and retention. Then in the app:
+- **Team > Shifts**: add your shifts and who works them.
+- **Checklist > Edit checklist**: set an owner (a shift or a person) for each check. Analysts now see "Assigned to you" on their Home.
+
+### 2. Deploy the server functions (one time, 5 minutes)
+Two small functions run inside Supabase: `snapshot` (pulls numbers from your tools) and `sentinel` (Teams alerts, Splunk forwarding, retention).
+1. Create a token at supabase.com/dashboard/account/tokens.
+2. In GitHub: repo **Settings > Secrets and variables > Actions > New repository secret**, add
+   `SUPABASE_ACCESS_TOKEN` (the token) and `SUPABASE_PROJECT_REF` (the part before `.supabase.co`).
+3. **Actions > Deploy server functions > Run workflow**. After that it redeploys automatically whenever the functions change.
+
+### 3. Add secrets (Supabase > Edge Functions > Secrets)
+Each feature turns on by itself once its secrets exist. Leave out anything you don't use yet.
+
+| Secret | What it's for |
+|---|---|
+| `SENTINEL_KEY` | **Required for alerts.** Any long random value, e.g. from `openssl rand -hex 32`. |
+| `TEAMS_WEBHOOK_URL` | Teams channel > **Workflows** > "Post to a channel when a webhook request is received" > copy the URL. |
+| `SPLUNK_HEC_URL`, `SPLUNK_HEC_TOKEN`, `SPLUNK_INDEX` (optional) | `https://<splunk>:8088/services/collector/event` and a HEC token. Sourcetypes are `shu:soclog:entry`, `:review`, `:handoff`, `:audit`. |
+| `CROWDSTRIKE_CLIENT_ID`, `CROWDSTRIKE_CLIENT_SECRET`, `CROWDSTRIKE_BASE_URL` (if not US-1) | Falcon > Support > API clients and keys. Scope: **Alerts: Read** only. |
+| `MS_TENANT_ID`, `MS_CLIENT_ID`, `MS_CLIENT_SECRET` | Entra app registration with the **SecurityIncident.Read.All** application permission (admin consent). |
+| `DUO_API_HOST`, `DUO_IKEY`, `DUO_SKEY` | Duo Admin Panel > Applications > Protect an Application > **Admin API**, permission **Grant read log** only. |
+| `ABNORMAL_API_TOKEN` | Abnormal portal > Settings > Integrations > Abnormal REST API. |
+| `SITE_URL`, `SITE_ORIGIN`, `DIGEST_HOUR`, `SOC_TIMEZONE` (optional) | Defaults: this GitHub Pages site, 9 (am) and America/New_York. |
+
+Ask whoever owns each tool to create the read-only credential. Never paste these into the website or the repo.
+The checks wired to tools by default are: Falcon triage (CrowdStrike), Defender XDR incident queue, Duo denied/anomalous authentications, Abnormal Threat Log.
+
+### 4. Turn on the schedule (2 minutes)
+Supabase > **Database > Extensions**: enable `pg_cron` and `pg_net`. Then open `supabase/schedule.sql`, replace `<PROJECT_REF>` and `<SENTINEL_KEY>`, and run it in the SQL Editor. The sentinel now runs every minute:
+- **Escalations** post to Teams within about a minute.
+- **New sign-ups** post to Teams.
+- On weekdays at 9 am, a list of **overdue critical/high checks** posts to Teams.
+- **Splunk** receives every new entry, review, handoff and audit event.
+- **Retention** runs once a day.
+
+### 5. Optional: let the uptime check test the alert function
+Add the same `SENTINEL_KEY` as a GitHub repository secret. The **Uptime** workflow checks every 15 minutes that the site, Supabase and the sentinel respond, and GitHub emails you if any of them fail.
+
+## Reports
+**Reports** (supervisors) shows a month at a glance: checks logged, compliance for daily/weekly/monthly checks, escalations and median time to review, evidence rate, and breakdowns by analyst and tool. Use **Print / save PDF** or **Export CSV** to hand it on.
+
+## Testing and operations
+- `tests/rls_tests.sql` checks every access rule against a real Postgres (pending users, removed users, password-only sessions, editing/deleting entries, spoofing someone else, attaching someone else's files, fake snapshots and more). `tests/*_test.ts` check the tool connectors (including Duo's request signing against Duo's published example) and the alert/Splunk function end to end against fakes. All of it runs on every push (**Actions > Tests**).
+- Run locally: `PGHOST=... PGUSER=postgres tests/run_local.sh` and `deno test -A tests/`.
+- **docs/RUNBOOK.md**: what to do when the site is down, alerts stop, someone loses a phone, and so on.
+- **docs/SECURITY.md**: what the app protects, the controls in place, known gaps and the go-live checklist.
+
 ## Good to know
 - **Email limits:** Supabase's built-in email sender only sends a few emails per hour on the free plan. If several students sign up at once, some confirmation emails may be delayed. For a team, connect your own SMTP under **Authentication > Emails > SMTP Settings**, or temporarily turn off **Confirm email** under **Authentication > Providers > Email** while onboarding. Supervisor approval still protects the app.
 - **Free projects pause** after about a week with no activity. Daily use keeps the project awake. If it pauses, click **Restore** in the Supabase dashboard.
@@ -120,9 +172,15 @@ index.html                  App shell
 css/app.css                 Styles (light + dark)
 js/config.js                Your Supabase URL + anon key
 js/api.js                   Data layer (Supabase or demo)
-js/app.js                   Screens: auth, logging, overview, activity, coverage, people, checklist, audit, settings
+js/app.js                   Screens: landing, sign-in, home, logging, activity, checklist, team & shifts, reports, settings
 data/practices.json         Checklist used by demo mode
 supabase/schema.sql         Tables, triggers and row-level security
 supabase/seed_practices.sql The 39 SOC checks
 supabase/auth_upgrade.sql   Database-enforced 2-step verification + supervisor 2-step reset
+supabase/upgrade_v2.sql     Shifts, owners, handoffs, evidence storage, tool snapshots, retention
+supabase/schedule.sql       Runs the sentinel every minute (pg_cron + pg_net + Vault)
+supabase/functions/         snapshot (tool numbers) and sentinel (Teams, Splunk, retention) server functions
+tests/                      Access-rule tests (SQL) and function tests (Deno)
+docs/                       Runbook and security review
+.github/workflows/          Tests, uptime checks, function deploys
 ```
