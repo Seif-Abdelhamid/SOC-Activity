@@ -1,0 +1,43 @@
+name: Tests
+# Runs on every push and pull request. A red X here means an access rule or a
+# connector broke, so don't run the SQL in Supabase until it's green again.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  access-rules:
+    name: Database access rules
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_PASSWORD: postgres }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env: { PGHOST: localhost, PGPORT: "5432", PGUSER: postgres, PGPASSWORD: postgres }
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y postgresql-client >/dev/null
+      - run: tests/run_local.sh
+
+  functions:
+    name: Server functions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with: { deno-version: v2.1.x }
+      - run: deno check supabase/functions/snapshot/index.ts supabase/functions/sentinel/index.ts
+      - run: deno test -A tests/
+
+  site:
+    name: Website script
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: for f in js/*.js; do node --check "$f"; done

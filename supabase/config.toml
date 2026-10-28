@@ -1,0 +1,8 @@
+# Only used by the Supabase CLI when deploying the server functions.
+project_id = "soc-activity"
+
+[functions.snapshot]
+verify_jwt = true        # called by signed-in analysts
+
+[functions.sentinel]
+verify_jwt = false       # called by the scheduler; checks its own x-sentinel-key header

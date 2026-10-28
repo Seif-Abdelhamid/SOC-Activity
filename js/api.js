@@ -132,6 +132,37 @@ async function supabaseApi() {
     async people() { return unwrap(await sb.from("profiles").select("*").order("created_at")); },
     async setAccess(id, patch) { unwrap(await sb.from("profiles").update(patch).eq("id", id)); },
     async audit() { return unwrap(await sb.from("audit_events").select("*").order("at", { ascending: false }).limit(500)); },
+
+    // ---- v2: shifts, ownership, handoffs, evidence, tool snapshots, reports ----
+    async directory() { return unwrap(await sb.rpc("directory")) || []; },
+    async shifts() { return unwrap(await sb.from("shifts").select("*, shift_members(user_id)").order("starts")) .map(s => ({ ...s, members: (s.shift_members || []).map(m => m.user_id) })); },
+    async saveShift(row, members) {
+      const { id, ...fields } = row;
+      const saved = id ? unwrap(await sb.from("shifts").update(fields).eq("id", id).select().single()) : unwrap(await sb.from("shifts").insert(fields).select().single());
+      const current = unwrap(await sb.from("shift_members").select("user_id").eq("shift_id", saved.id)).map(m => m.user_id);
+      const add = members.filter(m => !current.includes(m)), drop = current.filter(m => !members.includes(m));
+      if (add.length) unwrap(await sb.from("shift_members").insert(add.map(user_id => ({ shift_id: saved.id, user_id }))));
+      if (drop.length) unwrap(await sb.from("shift_members").delete().eq("shift_id", saved.id).in("user_id", drop));
+      return saved;
+    },
+    async deleteShift(id) { unwrap(await sb.from("shifts").delete().eq("id", id)); },
+    async handoffs() { return unwrap(await sb.from("handoffs").select("*").order("created_at", { ascending: false }).limit(500)); },
+    async addHandoff(row) { return unwrap(await sb.from("handoffs").insert(row).select().single()); },
+    async uploadEvidence(file) {
+      const s = (await sb.auth.getSession()).data.session; if (!s) throw new Error("Sign in again to attach files.");
+      const ext = (file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5) || "bin";
+      const path = `${s.user.id}/${crypto.randomUUID()}.${ext}`;
+      unwrap(await sb.storage.from("evidence").upload(path, file, { contentType: file.type || undefined, upsert: false }));
+      return path;
+    },
+    async evidenceUrl(path) { return unwrap(await sb.storage.from("evidence").createSignedUrl(path, 600)).signedUrl; },
+    async takeSnapshot(source) {
+      const { data, error } = await sb.functions.invoke("snapshot", { body: { source } });
+      if (error) { let msg = error.message; try { msg = (await error.context.json()).error || msg; } catch { /* keep */ } throw new Error(msg); }
+      return data;
+    },
+    async snapshots(ids) { return ids.length ? unwrap(await sb.from("tool_snapshots").select("*").in("id", ids)) : []; },
+    async escalationResponse(since, until) { return unwrap(await sb.rpc("escalation_response", { since, until })) || []; },
   };
 }
 
@@ -156,7 +187,13 @@ function demoApi() {
   let practices = [];
   const logs = [], reviews = [], audit = [];
   let me = null, nextId = 1, listeners = [];
-  const settings = { org_name: "Seton Hall University SOC", allowed_email_domain: "shu.edu" };
+  const settings = { org_name: "Seton Hall University SOC", allowed_email_domain: "shu.edu", retention_days: 1095,
+    notes_guidance: "Don't paste passwords, MFA codes, student records (FERPA), HR or medical details. Name the account or host instead." };
+  let shifts = [
+    { id: 1, name: "Weekday morning", days: [1, 2, 3, 4, 5], starts: "08:00:00", ends: "12:00:00", active: true, members: [uid(2), uid(3)] },
+    { id: 2, name: "Weekday afternoon", days: [1, 2, 3, 4, 5], starts: "12:00:00", ends: "17:00:00", active: true, members: [uid(4), uid(5)] },
+  ];
+  const handoffs = [], snaps = {}, files = {};
 
   const notes = {
     clear: [
@@ -220,7 +257,21 @@ function demoApi() {
 
   return {
     demo: true,
-    async init(practiceRows) { practices = practiceRows.map(p => ({ ...p })); seedData(); },
+    async init(practiceRows) {
+      practices = practiceRows.map(p => ({ ...p, owner_id: null, owner_shift_id: null, snapshot_source: null }));
+      const set = (id, k, v) => { const p = practices.find(x => x.id === id); if (p) p[k] = v; };
+      ["cs1", "md1", "md2", "duo1", "ab3"].forEach(id => set(id, "owner_shift_id", 1));
+      ["md4", "md5", "ab1", "ab2", "duo2", "duo3", "sp2"].forEach(id => set(id, "owner_shift_id", 2));
+      set("cs3", "owner_id", uid(3)); set("duo4", "owner_id", uid(5)); set("x2", "owner_id", uid(2));
+      set("cs1", "snapshot_source", "crowdstrike_alerts"); set("md1", "snapshot_source", "defender_incidents");
+      set("duo2", "snapshot_source", "duo_auth_denied"); set("ab1", "snapshot_source", "abnormal_threats");
+      seedData();
+      const hAgo = h => new Date(now - h * 36e5).toISOString();
+      handoffs.push(
+        { id: 3, user_id: uid(3), shift_id: 1, created_at: hAgo(3.2), summary: "Falcon queue clean as of 11:55. Defender had 2 user-reported phish, both purged (INC0041092).", open_items: "FIN-LT022 still isolated, waiting on desktop support to re-image.", watch_for: "More DocuSign lures from docu-sign-secure.co, sender is blocked but variants keep coming." },
+        { id: 2, user_id: uid(5), shift_id: 2, created_at: hAgo(21), summary: "Quiet afternoon. Reviewed Duo denials, nothing beyond normal lockouts.", open_items: "", watch_for: "Payroll deadline Friday, expect W-2 themed phishing." },
+        { id: 1, user_id: uid(2), shift_id: 1, created_at: hAgo(27), summary: "Worked ATO case for a.reyes. Password reset and sessions revoked, new Duo device removed.", open_items: "Confirm with a.reyes they didn't approve the enrollment.", watch_for: "" });
+    },
     async session() { return me ? { user: { id: me.id, email: me.email } } : null; },
     onAuth(cb) { listeners.push(cb); },
     async signIn(email) {
@@ -284,6 +335,34 @@ function demoApi() {
       log(action, id, { email: p.email, from_role: old.role, to_role: p.role });
     },
     async audit() { need(isSup()); return clone(audit); },
+    async directory() { need(me && me.status === "active"); return clone(people.filter(p => p.status === "active").map(({ id, full_name, role }) => ({ id, full_name, role }))); },
+    async shifts() { return clone(shifts); },
+    async saveShift(row, members) {
+      need(isSup());
+      let sh = row.id && shifts.find(x => x.id === row.id);
+      if (sh) Object.assign(sh, row, { members }); else { sh = { ...row, id: Math.max(0, ...shifts.map(x => x.id)) + 1, active: true, members }; shifts.push(sh); }
+      log("shift_" + (row.id ? "update" : "insert"), null, { table: "shifts", row: { name: sh.name } }); return clone(sh);
+    },
+    async deleteShift(id) { need(isSup()); shifts = shifts.filter(x => x.id !== id); practices.forEach(p => { if (p.owner_shift_id === id) p.owner_shift_id = null; }); log("shift_delete", null, { table: "shifts", row: { id } }); },
+    async handoffs() { return clone(handoffs.slice().sort((a, b) => b.created_at.localeCompare(a.created_at))); },
+    async addHandoff(row) { need(me && me.status === "active"); const r = { ...row, id: handoffs.length + 10, user_id: me.id, created_at: new Date().toISOString() }; handoffs.push(r); return wait(clone(r)); },
+    async uploadEvidence(file) { const path = `${me.id}/${Math.random().toString(16).slice(2)}-${file.name.replace(/[^\w.-]/g, "")}`; files[path] = URL.createObjectURL(file); return wait(path); },
+    async evidenceUrl(path) { return files[path] || "img/logo-256.webp"; },
+    async takeSnapshot(source) {
+      const demo = { crowdstrike_alerts: ["CrowdStrike Falcon", "6 new alerts in Falcon, 1 high or critical, oldest waiting 47 min", { new_alerts: 6, new_high_or_critical: 1 }],
+        defender_incidents: ["Microsoft Defender", "4 active incidents in Defender, 1 high severity, 2 unassigned, oldest 5 h", { active_incidents: 4, high_severity: 1, unassigned: 2 }],
+        duo_auth_denied: ["Duo", "38 denied authentications in Duo in the last 24 h, 1 marked as fraud by the user", { denied_24h: 38, fraud_24h: 1 }],
+        abnormal_threats: ["Abnormal", "11 threats detected by Abnormal in the last 24 h", { threats_24h: 11 }] }[source];
+      const id = "snap-" + Math.random().toString(16).slice(2); const taken_at = new Date().toISOString();
+      snaps[id] = { id, user_id: me.id, source, taken_at, metrics: { ...demo[2], summary: demo[1] + " (demo numbers)" } };
+      return wait({ id, taken_at, source, label: demo[0], summary: demo[1] + " (demo numbers)", metrics: demo[2] });
+    },
+    async snapshots(ids) { return clone(ids.map(i => snaps[i]).filter(Boolean)); },
+    async escalationResponse(since, until) {
+      need(isSup());
+      return clone(logs.filter(l => l.result === "escalated" && l.created_at >= since && l.created_at < until).map(l => { const r = reviews.find(x => x.log_id === l.id);
+        return { log_id: l.id, logged_at: l.created_at, reviewed_at: r ? r.reviewed_at : null, minutes: r ? Math.round((new Date(r.reviewed_at) - new Date(l.created_at)) / 6000) / 10 : null }; }));
+    },
   };
 }
 
